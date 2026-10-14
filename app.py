@@ -3190,6 +3190,102 @@ def descargar_publico_con_respaldo_zc(url, headers=None, timeout=(3, 8), max_byt
 
 # END DESCARGAS PUBLICAS ZC 1.5.2
 
+# BEGIN REFERENCIAS DOCUMENTALES ZC 1.5.2
+"""Referencias documentales verificadas; se muestran separadas de las consultas vivas.
+
+Las fechas son las de la evidencia original. Estas constantes no reemplazan
+fuentes actuales, no se conectan al motor y nunca cambian su fecha al abrir la app.
+"""
+
+REFERENCIA_DOCUMENTAL_TRIMESTRAL_ZC = {
+    'tipo': 'referencia_documental',
+    'organismo': 'Servicio Meteorológico Nacional (SMN)',
+    'titulo': 'Pronóstico climático trimestral: agosto–septiembre–octubre 2026',
+    'periodo': 'agosto–septiembre–octubre 2026',
+    'inicio': '2026-08-01T00:00:00-03:00',
+    'fin': '2026-10-31T23:59:59-03:00',
+    'interpretacion_periodo': 'Límites de calendario del trimestre en ART; no son horas publicadas ni vigencia operativa',
+    'emision': '2026-07-31',
+    'precision_emision': 'Día; el PDF no publica hora de emisión',
+    'fecha_verificacion_documental': '2026-10-14',
+    'hora_consulta_original': None,
+    'fuente': 'https://repositorio.smn.gob.ar/bitstream/handle/20.500.12160/3302/0044CL2026.pdf?sequence=1&isAllowed=y',
+    'url': 'https://repositorio.smn.gob.ar/bitstream/handle/20.500.12160/3302/0044CL2026.pdf?sequence=1&isAllowed=y',
+    'ficha_oficial': 'https://repositorio.smn.gob.ar/handle/20.500.12160/3302',
+    'indice_oficial': 'https://repositorio.smn.gob.ar/handle/20.500.12160/1179',
+    'paginas_verificadas': 8,
+    'bytes_verificados': 1746907,
+    'archivo_disponible_en_app': False,
+    'solo_metadatos': True,
+    'es_referencia_documental': True,
+    'documento_recuperado_en_revision': True,
+    'consulta_actual_confirmada': False,
+    'edicion_mensual_mas_reciente_confirmada': False,
+    'permite_alarma_local': False,
+    'alcance': 'Referencia del documento leído el 14/10/2026. No confirma que sea la última edición mensual; sus mapas no están incrustados ni se extrajo una categoría para Zárate–Campana.',
+}
+
+
+REFERENCIA_DOCUMENTAL_PNA_ZC = {
+    'tipo': 'referencia_documental',
+    'organismo': 'Prefectura Naval Argentina (PNA)',
+    'fuente': 'https://contenidosweb.prefecturanaval.gob.ar/alturas/',
+    'consulta_original': '2026-10-14T15:05:25.538858-03:00',
+    'es_referencia_documental': True,
+    'consulta_actual_confirmada': False,
+    'permite_alarma_local': False,
+    'alcance': 'Lecturas conservadas de la tabla pública consultada el 14/10/2026 a las 15:05 ART. La tabla no declaró zona horaria de las lecturas; este archivo no confirma alturas actuales.',
+    'registros': {
+        'Zárate': {
+            'nombre': 'Zárate',
+            'rio': 'DELTA PARANA',
+            'altura_m': 1.39,
+            'alerta_m': 2.2,
+            'evacuacion_m': 2.4,
+            'fecha_publicada': '14/OCT/26 - 0000',
+            'fecha_sin_zona': '2026-10-14T00:00:00',
+            'tendencia_publicada': 'CRECE',
+            'unidad': 'm',
+            'referencia_vertical': 'Escala del puerto publicada por PNA; cero vertical no identificado en la tabla',
+            'zona_horaria_verificada': False,
+            'observacion_vigente': False,
+            'es_referencia_documental': True,
+            'permite_alarma_local': False,
+            'consulta_original': '2026-10-14T15:05:25.538858-03:00',
+            'consulta': '2026-10-14T15:05:25.538858-03:00',
+            'fuente': 'https://contenidosweb.prefecturanaval.gob.ar/alturas/',
+        },
+        'Campana': {
+            'nombre': 'Campana',
+            'rio': 'DELTA PARANA',
+            'altura_m': 0.70,
+            'alerta_m': 2.2,
+            'evacuacion_m': 2.45,
+            'fecha_publicada': '14/OCT/26 - 1200',
+            'fecha_sin_zona': '2026-10-14T12:00:00',
+            'tendencia_publicada': 'BAJA',
+            'unidad': 'm',
+            'referencia_vertical': 'Escala del puerto publicada por PNA; cero vertical no identificado en la tabla',
+            'zona_horaria_verificada': False,
+            'observacion_vigente': False,
+            'es_referencia_documental': True,
+            'permite_alarma_local': False,
+            'consulta_original': '2026-10-14T15:05:25.538858-03:00',
+            'consulta': '2026-10-14T15:05:25.538858-03:00',
+            'fuente': 'https://contenidosweb.prefecturanaval.gob.ar/alturas/',
+        },
+    },
+}
+
+
+def referencias_documentales_zc():
+    """Entrega copias del archivo; no consulta ni renueva su fecha de evidencia."""
+    from copy import deepcopy
+    return {'smn_trimestral': deepcopy(REFERENCIA_DOCUMENTAL_TRIMESTRAL_ZC),
+            'pna_alturas': deepcopy(REFERENCIA_DOCUMENTAL_PNA_ZC)}
+
+# END REFERENCIAS DOCUMENTALES ZC 1.5.2
+
 def mostrar_trimestral_integrado():
     st.subheader('Perspectiva climática trimestral SMN · documento completo')
     asegurar_trimestral_zc()
@@ -3212,6 +3308,9 @@ def mostrar_trimestral_integrado():
         st.info('Consultá el informe para ver precipitación, temperatura y todas las leyendas. La perspectiva describe el trimestre y no anticipa una tormenta puntual.')
     elif res.get('error'):
         st.warning('No se pudo recuperar el informe: '+res['error'])
+        documental=res.get('referencia_documental') or referencias_documentales_zc()['smn_trimestral']
+        st.info('Referencia documental verificada: '+documental['periodo']+'. Emisión: 31/07/2026. Revisión documental: 14/10/2026; sin hora guardada. Esta consulta no recuperó el PDF ni confirmó una edición más reciente.')
+        st.link_button('Abrir el PDF oficial de la referencia documental',documental['url'],key='zc_trimestral_documental_pdf')
     else:
         if res.get('ultima_consulta_error'):
             st.warning('La actualización del documento falló: '+res['ultima_consulta_error']+'. Se conserva el informe previo con su fecha original.')
@@ -4065,7 +4164,8 @@ def consultar_trimestral():
         pdf = descargar_publico_con_respaldo_zc(url, timeout=(3,8)); pdf.raise_for_status()
         return leer_pdf_trimestral(pdf.content, url)
     except Exception:
-        return {'error':'No se pudo recuperar un informe trimestral verificable del repositorio SMN. Consultá la publicación oficial o cargá su PDF.'}
+        return {'error':'No se pudo recuperar un informe trimestral verificable del repositorio SMN. Consultá la publicación oficial o cargá su PDF.',
+                'referencia_documental':referencias_documentales_zc()['smn_trimestral']}
 
 
 def mostrar_inta_ficha():
@@ -5327,7 +5427,8 @@ def obtener_alturas_prefectura_zc():
                 'error':'' if registros else 'No se recibieron las alturas de los dos puertos locales.'}
     except (requests.RequestException,ValueError,TypeError,KeyError):
         return {'registros':{},'consulta':consulta,'fuente':url,
-                'error':'No se recuperaron alturas verificables de Prefectura en esta consulta.'}
+                'error':'No se recuperaron alturas verificables de Prefectura en esta consulta.',
+                'referencia_documental':referencias_documentales_zc()['pna_alturas']}
 
 
 def consultar_alturas_locales_zc():
@@ -5350,6 +5451,10 @@ def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
     datos=datos if isinstance(datos,dict) else consultar_alturas_locales_zc()
     refs=datos.get('referencias',{})
     pna=obtener_alturas_prefectura_zc()
+    archivo_pna=pna.get('referencia_documental',{})
+    if pna.get('error') and archivo_pna.get('registros'):
+        st.warning(pna['error']+' Se muestran por separado lecturas documentales conservadas; no confirman la altura actual.')
+        st.caption('Consulta original de la tabla conservada: '+archivo_pna['consulta_original']+'. Esta fecha no se renueva al abrir la página.')
     for col,(nombre,config) in zip(st.columns(2),_zc_hidro_estaciones.items()):
         with col:
             st.markdown('### '+nombre)
@@ -5373,8 +5478,13 @@ def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
                 st.caption('Cero IGN publicado: '+str(meta.get('cero_ign_m'))+' m. La referencia no constituye una orden de evacuación.')
             else:st.caption('Referencias de alerta y cero de escala sin confirmar en esta consulta.')
             registro=pna.get('registros',{}).get(nombre)
-            st.metric('Prefectura · último registro publicado',f"{registro['altura_m']:.2f} m" if registro else 'Sin dato')
+            documental=False
+            if not registro:
+                registro=archivo_pna.get('registros',{}).get(nombre)
+                documental=bool(registro)
+            st.metric('Prefectura · lectura documental conservada' if documental else 'Prefectura · último registro publicado',f"{registro['altura_m']:.2f} m" if registro else 'Sin dato')
             if registro:
+                if documental:st.caption('Archivo documental del 14/10/2026. Lectura conservada; no es una medición actual ni se usa para activar alertas.')
                 st.caption('Fecha y hora de Prefectura: '+registro['fecha_publicada']+' · huso horario no especificado en la tabla.')
                 st.write('Tendencia publicada por Prefectura: **'+registro['tendencia_publicada']+'**.')
                 st.caption(f"Referencias PNA: alerta {registro['alerta_m']:.2f} m · evacuación {registro['evacuacion_m']:.2f} m.")
@@ -7285,6 +7395,9 @@ def asegurar_trimestral_zc(forzar=False, referencia=None):
     """Consulta automática acotada; conserva archivos aportados y documentos previos."""
     ref = _ui_fecha_local(referencia if referencia is not None else ahora())
     guardado = st.session_state.get('ficha_trimestral')
+    if isinstance(guardado,dict) and guardado.get('error') and not guardado.get('referencia_documental'):
+        guardado={**guardado,'referencia_documental':referencias_documentales_zc()['smn_trimestral']}
+        st.session_state['ficha_trimestral']=guardado
     if isinstance(guardado, dict) and guardado.get('aportado_por_usuario'):
         return guardado
     intento = _ui_fecha_local(st.session_state.get('zc_trimestral_ultimo_intento'))
@@ -7316,10 +7429,17 @@ def resumen_trimestral_modelo_zc(informe, referencia=None):
     ref = _ui_fecha_local(referencia if referencia is not None else ahora())
     informe = informe if isinstance(informe, dict) else {}
     if not informe or informe.get('error'):
+        referencia_documental=informe.get('referencia_documental') if isinstance(informe,dict) else None
+        referencia_documental=referencia_documental if isinstance(referencia_documental,dict) else {}
+        inicio_doc=_ui_fecha_local(referencia_documental.get('inicio'))
+        fin_doc=_ui_fecha_local(referencia_documental.get('fin'))
+        estado_doc=estado_periodo_trimestral(inicio_doc,fin_doc,referencia=ref) if ref is not None and inicio_doc is not None and fin_doc is not None and inicio_doc<fin_doc else 'Período sin confirmar'
         return {'informe_smn_disponible': False,
-                'estado_documento': 'Sin documento trimestral recuperado',
-                'periodo': None, 'fecha_documento': None, 'fecha_consulta': None,
-                'url_documento': None,
+                'referencia_documental_disponible':bool(referencia_documental),
+                'referencia_documental':referencia_documental,
+                'estado_documento':estado_doc if referencia_documental else 'Sin documento trimestral recuperado',
+                'periodo': referencia_documental.get('periodo'), 'fecha_documento': referencia_documental.get('emision'), 'fecha_consulta': None,
+                'url_documento': referencia_documental.get('url'),
                 'error_consulta': str(informe.get('error') or 'Documento no consultado o sin confirmar.')}
     inicio = _ui_fecha_local(informe.get('inicio'))
     fin = _ui_fecha_local(informe.get('fin'))
@@ -7851,10 +7971,14 @@ def mostrar_modelo_predictivo_zc(resultado):
     st.write('**'+_modelo_horizontes_texto(clima.get('estado'),'Contexto climático pendiente')+'**')
     st.write(_modelo_horizontes_texto(clima.get('descripcion'),'Revisá el trimestre y las leyendas del informe SMN disponible en Datos oficiales.'))
     st.caption('La perspectiva climática orienta preparación estacional. No asigna una fecha de inundación, y sus categorías no se convierten en probabilidades de inundación local.')
-    if clima.get('informe_smn_disponible'):
+    if clima.get('informe_smn_disponible') or clima.get('referencia_documental_disponible'):
         st.write('**Trimestre del documento disponible:** '+_modelo_horizontes_texto(clima.get('periodo')))
         fecha_documento=_ui_fecha_local(clima.get('fecha_documento'))
-        st.caption('Fecha de emisión identificada en el PDF: '+(fecha_documento.strftime('%d/%m/%Y')+' · sin hora identificada' if fecha_documento is not None else 'Sin confirmar')+' · consulta: '+_modelo_horizontes_fecha(clima.get('fecha_consulta')))
+        es_documental=clima.get('referencia_documental_disponible') and not clima.get('informe_smn_disponible')
+        st.caption('Fecha de emisión identificada en el PDF: '+(fecha_documento.strftime('%d/%m/%Y')+' · sin hora identificada' if fecha_documento is not None else 'Sin confirmar')+(' · revisión documental: 14/10/2026 · sin hora guardada' if es_documental else ' · consulta: '+_modelo_horizontes_fecha(clima.get('fecha_consulta'))))
+        if es_documental:
+            st.warning('Referencia documental conservada. El servidor no descargó el PDF en esta consulta y no confirmó una edición mensual más reciente. Sus datos no activan alertas locales.')
+            st.link_button('Abrir PDF oficial de la referencia SMN',clima['url_documento'],key='zc_modelo_clima_documental_pdf')
         estado_periodo={'vigente':'Trimestre que comienza este mes','vigente_iniciado_antes':'Incluye la fecha actual; comenzó en un mes anterior',
             'previsto':'Trimestre futuro','vencido':'Trimestre vencido; antecedente documental'}.get(clima.get('estado_documento'),'Período sin confirmar')
         st.caption('Estado del período: '+estado_periodo+'. El documento completo, sus mapas y leyendas están en Datos oficiales SMN.')
