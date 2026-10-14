@@ -107,7 +107,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.5.1"
+VERSION = "ZC 1.5.2"
 
 
 
@@ -3110,13 +3110,94 @@ def leer_pdf_trimestral(contenido, url):
                 'paginas':paginas, 'pdf':contenido, 'consulta':ahora().isoformat(), 'error':''}
 
 
+# BEGIN DESCARGAS PUBLICAS ZC 1.5.2
+def _zc_respuesta_publica_zc(contenido, url, estado, cabeceras, transporte):
+    """Adapta una descarga pública acotada a la interfaz requests.Response."""
+    import re
+    respuesta = requests.Response()
+    respuesta.status_code = estado
+    respuesta._content = contenido
+    respuesta._content_consumed = True
+    respuesta.url = url
+    respuesta.headers.update(dict(cabeceras))
+    content_type = respuesta.headers.get('Content-Type', '')
+    charset = re.search(r'charset\s*=\s*["\']?([^;\s"\']+)', content_type, re.I)
+    if charset:
+        respuesta.encoding = charset[1]
+    else:
+        meta = re.search(rb'<meta\b[^>]*charset\s*=\s*["\']?([a-z0-9_\-]+)', contenido[:8192], re.I)
+        if meta:
+            respuesta.encoding = meta[1].decode('ascii')
+    respuesta.transporte_publico = transporte
+    return respuesta
+
+
+def descargar_publico_con_respaldo_zc(url, headers=None, timeout=(3, 8), max_bytes=6 * 1024 * 1024):
+    """GET público: respaldo ordinario sólo ante fallos de transporte del primer cliente."""
+    from urllib.request import Request, urlopen
+    from urllib.error import HTTPError, URLError
+    from urllib.parse import urlparse
+    from http.client import IncompleteRead
+    import ssl
+    origen = urlparse(str(url))
+    try:
+        valido = (origen.scheme == 'https' and origen.hostname and not origen.username and
+                  not origen.password and origen.port in {None, 443})
+    except ValueError:
+        valido = False
+    if not valido:
+        raise ValueError('La descarga pública requiere una URL HTTPS sin credenciales.')
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or not 1 <= max_bytes <= 6 * 1024 * 1024:
+        raise ValueError('El límite de la descarga pública debe ser de hasta 6 MiB.')
+    cabeceras = dict(headers or {'User-Agent': 'Alerta-Zarate-Campana/fuentes-publicas'})
+    try:
+        with requests.get(url, headers=cabeceras, timeout=timeout, stream=True) as r:
+            r.raise_for_status()
+            partes = []
+            total = 0
+            for parte in r.iter_content(chunk_size=65536):
+                if not parte:
+                    continue
+                total += len(parte)
+                if total > max_bytes:
+                    raise ValueError('La descarga pública supera el tamaño admitido.')
+                partes.append(parte)
+            return _zc_respuesta_publica_zc(b''.join(partes), r.url, r.status_code, r.headers, 'requests')
+    except requests.exceptions.SSLError:
+        raise
+    except (requests.exceptions.ConnectTimeout, requests.exceptions.ReadTimeout, requests.exceptions.ConnectionError):
+        # No cambia URL, autorización ni verificación TLS. Las respuestas HTTP
+        # denegadas y los certificados inválidos nunca llegan a este respaldo.
+        try:
+            with urlopen(Request(url, headers=cabeceras), timeout=12) as r:
+                contenido = r.read(max_bytes + 1)
+                if len(contenido) > max_bytes:
+                    raise ValueError('La descarga pública supera el tamaño admitido.')
+                return _zc_respuesta_publica_zc(contenido, r.geturl(), r.status, r.headers, 'urllib')
+        except HTTPError as exc:
+            r = _zc_respuesta_publica_zc(b'', exc.geturl(), exc.code, exc.headers or {}, 'urllib')
+            raise requests.exceptions.HTTPError('La fuente pública respondió HTTP ' + str(exc.code), response=r) from exc
+        except URLError as exc:
+            if isinstance(exc.reason, ssl.SSLError):
+                raise requests.exceptions.SSLError('No se pudo verificar TLS de la fuente pública.') from exc
+            raise requests.exceptions.ConnectionError('No se completó la descarga pública de respaldo.') from exc
+        except ssl.SSLError as exc:
+            raise requests.exceptions.SSLError('No se pudo verificar TLS de la fuente pública.') from exc
+        except TimeoutError as exc:
+            raise requests.exceptions.ReadTimeout('La fuente pública de respaldo no respondió a tiempo.') from exc
+        except IncompleteRead as exc:
+            raise requests.exceptions.ConnectionError('La fuente pública de respaldo devolvió un contenido incompleto.') from exc
+
+# END DESCARGAS PUBLICAS ZC 1.5.2
+
 def mostrar_trimestral_integrado():
     st.subheader('Perspectiva climática trimestral SMN · documento completo')
+    asegurar_trimestral_zc()
     st.caption('Se consulta el último documento listado por el repositorio. La fecha del documento y su trimestre se verifican por separado; el repositorio puede demorar respecto del sitio principal SMN.')
     if st.button('Consultar último informe trimestral disponible',key='ficha_trimestral_cargar'):
         consultar_trimestral.clear()
         with st.spinner('Recuperando el documento oficial…'):
-            st.session_state['ficha_trimestral'] = consultar_trimestral()
+            asegurar_trimestral_zc(forzar=True)
     with st.expander('Cargar un informe oficial descargado del SMN'):
         up = st.file_uploader('PDF trimestral descargado del SMN',type=['pdf'],key='ficha_trimestral_pdf')
         if up:
@@ -3132,6 +3213,8 @@ def mostrar_trimestral_integrado():
     elif res.get('error'):
         st.warning('No se pudo recuperar el informe: '+res['error'])
     else:
+        if res.get('ultima_consulta_error'):
+            st.warning('La actualización del documento falló: '+res['ultima_consulta_error']+'. Se conserva el informe previo con su fecha original.')
         st.write('**Trimestre del documento: '+res['periodo']+'**')
         estado = estado_periodo_trimestral(res['inicio'],res['fin'])
         mensajes = {
@@ -3403,7 +3486,7 @@ def procesar_escena(item,lat,lon):
 
 
 def mostrar_satelite_automatico():
-    with st.expander('Obtener NDWI / NDVI / MNDWI desde Sentinel-2'):
+    with st.expander('Obtener NDWI / NDVI / MNDWI desde Sentinel-2',expanded=True):
         nodo=st.selectbox('Localidad del análisis satelital',range(len(NODOS)),
             format_func=lambda i:NODOS[i]['localidad'],key='ficha_sat_nodo')
         n=NODOS[nodo];nombre=normalizar_nombre(n['localidad'])
@@ -3413,6 +3496,8 @@ def mostrar_satelite_automatico():
             res=buscar_escenas(n['lat'],n['lon'],hasta-timedelta(days=30),hasta)
             st.session_state['ficha_sat_catalogo']=(nombre,hasta,res)
         cat=st.session_state.get('ficha_sat_catalogo')
+        if not cat:
+            st.info('Análisis satelital pendiente de consulta. Elegí una localidad y pulsá «Buscar escenas satelitales» para ver imágenes y calcular sus índices.')
         if cat and cat[:2]==(nombre,hasta):
             res=cat[2]
             if res['error']:
@@ -3965,19 +4050,19 @@ def mostrar_enos_ficha():
 @st.cache_data(ttl=21600, show_spinner=False)
 def consultar_trimestral():
     try:
-        pagina = requests.get(TRIMESTRAL_REPO, timeout=(10,20)); pagina.raise_for_status()
+        pagina = descargar_publico_con_respaldo_zc(TRIMESTRAL_REPO, timeout=(3,8)); pagina.raise_for_status()
         candidatos = re.findall(r'href=["\']([^"\']*/handle/20\.500\.12160/\d+)["\'][^>]*>\s*Pron(?:ó|&oacute;)stico clim', pagina.text, re.I)
         if not candidatos:
             raise ValueError('No se identificó un informe trimestral en el repositorio oficial.')
         ficha = urljoin(TRIMESTRAL_REPO, candidatos[0])
-        detalle = requests.get(ficha, timeout=(10,20)); detalle.raise_for_status()
+        detalle = descargar_publico_con_respaldo_zc(ficha, timeout=(3,8)); detalle.raise_for_status()
         pdfs = re.findall(r'href=["\']([^"\']*bitstream[^"\']*\.pdf[^"\']*)["\']', detalle.text, re.I)
         if not pdfs:
             raise ValueError('El informe no tiene un PDF público identificable.')
         url = urljoin(ficha, html.unescape(pdfs[0]))
         if urlparse(url).hostname != 'repositorio.smn.gob.ar':
             raise ValueError('El PDF no pertenece al repositorio SMN.')
-        pdf = requests.get(url, timeout=(10,20)); pdf.raise_for_status()
+        pdf = descargar_publico_con_respaldo_zc(url, timeout=(3,8)); pdf.raise_for_status()
         return leer_pdf_trimestral(pdf.content, url)
     except Exception:
         return {'error':'No se pudo recuperar un informe trimestral verificable del repositorio SMN. Consultá la publicación oficial o cargá su PDF.'}
@@ -5232,7 +5317,7 @@ def obtener_alturas_prefectura_zc():
     url=_zc_hidro_enlaces['Prefectura · alturas observadas']
     consulta=ahora().isoformat()
     try:
-        r=requests.get(url,headers={'User-Agent':'Alerta-Zarate-Campana/alturas-locales'},timeout=(3,8))
+        r=descargar_publico_con_respaldo_zc(url,headers={'User-Agent':'Alerta-Zarate-Campana/alturas-locales'},timeout=(3,8))
         r.raise_for_status()
         origen=urlparse(r.url)
         if origen.scheme!='https' or origen.hostname!='contenidosweb.prefecturanaval.gob.ar':
@@ -5847,6 +5932,79 @@ def consultar_disponibilidad_delta_15d_zc():
     except (requests.RequestException,ValueError,TypeError,KeyError) as exc:
         return {**base,'estado':'sin_verificar','error':'No se verificó la disponibilidad del producto Delta a 15 días: '+type(exc).__name__}
 
+# BEGIN BOLETINES ZC 1.5.2
+def normalizar_boletin_cuenca_zc(boletin):
+    """Completa metadatos de productos conocidos; no infiere pronósticos ni vigencia."""
+    from urllib.parse import urlparse
+    if not isinstance(boletin, dict):
+        return {}
+    b = dict(boletin)
+    try:
+        origen = urlparse(str(b.get('url') or b.get('fuente') or ''))
+        es_ina = (origen.scheme == 'https' and
+                  origen.hostname in {'ina.gob.ar', 'www.ina.gob.ar', 'alerta.ina.gob.ar'} and
+                  not origen.username and not origen.password and origen.port in {None, 443})
+    except ValueError:
+        es_ina = False
+    if not es_ina:
+        return b
+    if not str(b.get('organismo') or b.get('autoridad') or '').strip():
+        b['organismo'] = 'Instituto Nacional del Agua (INA)'
+    tipo = b.get('tipo')
+    descripciones = {
+        'diario': ('Reporte hidrometeorológico diario de la Cuenca del Plata. Las tablas recuperadas aportan niveles, caudales y condiciones publicadas; el análisis completo se consulta en el documento original.',
+                   'Contexto regional fechado. La fecha del reporte no acredita la hora individual de las mediciones ni una alerta de evacuación en Zárate–Campana.'),
+        'diario_pdf': ('PDF enlazado por el reporte diario recuperado. Los valores de esta consulta provienen de las tablas HTML asociadas; el PDF no fue leído automáticamente.',
+                       'Mismo reporte documental fechado. No aporta una observación horaria local ni una fecha de llegada de la crecida.'),
+        'hidrometrico': ('Informe hidrométrico enlazado por el índice oficial INA. Sus tablas y fechas deben revisarse en el PDF original; esta consulta no extrajo sus valores.',
+                        'Actualización del producto indicada por el índice. Las fechas de sus observaciones pueden ser distintas; no se asigna vigencia horaria al documento.'),
+        'parana_7_14': ('Pronóstico del río Paraná enlazado por INA para estaciones del Paraná medio. El índice confirma el enlace y su actualización; las cifras de este PDF no se extrajeron automáticamente.',
+                       'El producto mantiene sus estaciones y horizontes originales. No se extiende el pronóstico local de Zárate–Campana de 96 horas ni se calcula la llegada de la onda.'),
+        'semanal': ('Informe semanal de situación y perspectiva de la Cuenca del Plata enlazado por el índice oficial INA.',
+                    'Contexto regional del período publicado. Emisión, estaciones y horizontes se revisan en el original; no se transforma en una alerta local automática.'),
+        'mensual': ('Informe mensual de situación y perspectiva de la Cuenca del Plata enlazado por el índice oficial INA.',
+                    'Contexto regional y estacional del período publicado. No determina una fecha de inundación ni una orden de evacuación local.'),
+        'delta_15d': ('Página oficial del producto de pronóstico del Delta a 15 días. Se consulta su disponibilidad; no se recuperó una corrida con estaciones y series verificadas.',
+                      'Sin emisión de corrida ni horizonte local verificados. La consulta de disponibilidad no habilita extender el pronóstico de 96 horas.'),
+    }
+    descripcion, alcance = descripciones.get(tipo, (
+        'Producto documental enlazado desde una fuente INA. Revisá el contenido original.',
+        'Área y período de validez del producto sin extracción automática confirmada.'))
+    if not str(b.get('resumen') or b.get('descripcion') or '').strip():
+        b['descripcion'] = descripcion
+    if not str(b.get('alcance') or b.get('vigencia') or b.get('limites') or '').strip():
+        b['alcance'] = alcance
+    if not str(b.get('estado') or '').strip():
+        b['estado'] = ('Tablas del reporte recuperadas; revisar su fecha' if b.get('datos_extraidos') is True
+                       else 'Enlace identificado en el índice INA; contenido sin extracción automática')
+    return b
+
+
+def normalizar_boletines_cuenca_zc(cuenca):
+    """Normaliza únicamente boletines; conserva fechas, registros y decisiones."""
+    if not isinstance(cuenca, dict):
+        return {}
+    lista = cuenca.get('boletines')
+    if not isinstance(lista, (list, tuple)):
+        return dict(cuenca)
+    return {**cuenca, 'boletines': [normalizar_boletin_cuenca_zc(b) for b in lista if isinstance(b, dict)]}
+
+
+def fecha_boletin_cuenca_texto_zc(valor):
+    """Una fecha documental sin hora no se convierte en medianoche ART."""
+    from datetime import date, datetime
+    import re
+    if isinstance(valor, date) and not isinstance(valor, datetime):
+        return valor.strftime('%d/%m/%Y') + ' · sin hora publicada'
+    if isinstance(valor, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', valor.strip()):
+        try:
+            return date.fromisoformat(valor.strip()).strftime('%d/%m/%Y') + ' · sin hora publicada'
+        except ValueError:
+            return 'Sin confirmar'
+    return _cuenca_ui_fecha_texto(valor)
+
+# END BOLETINES ZC 1.5.2
+
 @st.cache_data(ttl=300,show_spinner=False)
 def consultar_cuenca_parana_zc():
     """Normalize documentary and station source status for the basin UI/decision modules."""
@@ -5937,12 +6095,12 @@ def consultar_cuenca_parana_zc():
     valido_eby=bool(eby.get('campos') and not eby.get('error'))
     valido_indice=bool(indice.get('productos'))
     estado='verificado' if registros and valido_eby and valido_indice else 'parcial' if registros or valido_eby or valido_indice else 'sin_verificar'
-    return {'estado':estado,'fecha_emision':fecha_diario,'fecha_consulta':consulta,'registros':registros,
+    return normalizar_boletines_cuenca_zc({'estado':estado,'fecha_emision':fecha_diario,'fecha_consulta':consulta,'registros':registros,
         'boletines':boletines,'conexiones':conexiones,'incertidumbres':incertidumbres,'fuentes':fuentes,
         'eby':eby,'ultima_publicacion_indice':ultima,'permite_alarma_local':False,
         'delta_15d':delta_15d,
         'estado_fuentes':{k:v.get('estado','sin_verificar' if v.get('error') else 'verificado') for k,v in respuestas.items()},
-        'error':'' if estado!='sin_verificar' else 'No se recuperaron fuentes de cuenca verificables.'}
+        'error':'' if estado!='sin_verificar' else 'No se recuperaron fuentes de cuenca verificables.'})
 
 # cuenca_decision_zc.py
 def construir_decision_cuenca_zc(modelo_local, prevencion_local, cuenca, referencia=None):
@@ -6538,7 +6696,7 @@ def mostrar_cuenca_parana_zc(resultado, key_prefix='zc_cuenca_'):
                     st.warning('Esta consulta no recuperó el documento de este producto.')
                 elif b.get('estado') == 'fuera_de_servicio':
                     st.warning('INA declara este producto temporalmente fuera de servicio.')
-                st.caption('Publicación: ' + _cuenca_ui_fecha_texto(_cuenca_ui_campo(b, 'publicado', 'fecha_publicacion', 'fecha_emision')) +
+                st.caption('Publicación: ' + fecha_boletin_cuenca_texto_zc(_cuenca_ui_campo(b, 'publicado', 'fecha_publicacion', 'fecha_emision')) +
                            ' · Consulta: ' + _cuenca_ui_fecha_texto(_cuenca_ui_campo(b, 'consultado', 'fecha_consulta')))
                 st.caption('Tipo de fecha: ' + _cuenca_ui_texto(b.get('tipo_fecha')) +
                            ' · Extracción: ' + ('Registros extraídos' if b.get('datos_extraidos') is True else 'Documento enlazado; contenido sin extracción automática confirmada'))
@@ -6642,7 +6800,7 @@ def mostrar_prevencion_inundaciones_zc(df):
     if st.button('Actualizar vigilancia de inundaciones',key='zc_prevencion_refresh'):
         actualizar_fuentes_zc()
         st.rerun()
-    cap=obtener_cap_litoral()
+    cap=resolver_fuente_modelo_zc(obtener_cap_litoral,{'filas':[],'fecha_feed':None,'consultado':None},'avisos SMN')
     meteo=_resumen_meteorologico_prevencion_zc(df)
     with ThreadPoolExecutor(max_workers=7) as pool:
         f_refs=pool.submit(consultar_referencias_ina_zc)
@@ -6650,11 +6808,15 @@ def mostrar_prevencion_inundaciones_zc(df):
         f_cuenca=pool.submit(consultar_cuenca_parana_zc)
         f_obs={nombre:pool.submit(_zc_hidro_obtener_observaciones,c['observada']) for nombre,c in _zc_hidro_estaciones.items()}
         f_prono={nombre:pool.submit(_zc_hidro_obtener_pronostico,c['pronostico']) for nombre,c in _zc_hidro_estaciones.items()}
-        referencias=f_refs.result(); shn=f_shn.result()
-        observaciones={nombre:seleccionar_observaciones_locales_zc(f_obs[nombre].result(),referencias,c) for nombre,c in _zc_hidro_estaciones.items()}
+        referencias=resolver_fuente_modelo_zc(f_refs,{'referencias':{}},'referencias INA')
+        shn=resolver_fuente_modelo_zc(f_shn,{'tabla':pd.DataFrame(),'inicio':None,'fin':None},'estuario SHN')
+        observaciones={nombre:seleccionar_observaciones_locales_zc(resolver_fuente_modelo_zc(f_obs[nombre],
+            {'df':pd.DataFrame(),'serie_id':c['observada'],'dias':7},'altura observada de '+nombre),referencias,c) for nombre,c in _zc_hidro_estaciones.items()}
         rios=[_resumen_rio_prevencion_zc(nombre,c,observaciones[nombre],referencias) for nombre,c in _zc_hidro_estaciones.items()]
-        pronosticos={nombre:_zc_hidro_pronostico_para_mostrar(f.result()) for nombre,f in f_prono.items()}
-        cuenca=f_cuenca.result()
+        pronosticos={nombre:_zc_hidro_pronostico_para_mostrar(resolver_fuente_modelo_zc(f,
+            {'df':pd.DataFrame(),'url':_zc_hidro_url_pronostico(_zc_hidro_estaciones[nombre]['pronostico'])},'pronóstico INA de '+nombre)) for nombre,f in f_prono.items()}
+        cuenca=resolver_fuente_modelo_zc(f_cuenca,{'estado':'sin_verificar','registros':[],
+            'incertidumbres':['No se recuperó contexto de cuenca verificable.']},'cuenca del Paraná')
     st.session_state['zc_alturas_locales_resultado']={'observaciones':observaciones,'referencias':referencias}
     st.session_state['zc_cuenca_resultado']=cuenca
     partes=st.session_state.get('zc_partes_inundacion',pd.DataFrame())
@@ -6992,13 +7154,195 @@ def horizontes_modelo_zc(referencia=None):
                                     ('largo','Extendido · días 8–15',168,360)]]
 
 
+# BEGIN FUENTES INDEPENDIENTES ZC 1.5.2 · validador_modelo_datos_zc.py
+def _validar_respuesta_modelo_zc(nodo, datos, referencia):
+    """Keep verified rain when another variable is absent, with explicit gaps."""
+    ref = pd.Timestamp(referencia)
+    if pd.isna(ref) or ref.tzinfo is None:
+        raise ValueError('La evaluación del modelo necesita una hora con zona verificable.')
+    ref = ref.tz_convert(TZ)
+    if not isinstance(datos, dict) or datos.get('error'):
+        raise ValueError('La fuente no devolvió una respuesta meteorológica utilizable.')
+    try:
+        coordenadas = (datos['latitude'], datos['longitude'], nodo['lat'], nodo['lon'])
+        if any(isinstance(c, (bool, np.bool_)) for c in coordenadas):
+            raise ValueError()
+        lat, lon, nlat, nlon = map(float, coordenadas)
+    except (KeyError, TypeError, ValueError):
+        raise ValueError('La respuesta no permite verificar las coordenadas de la celda.') from None
+    if (not np.isfinite([lat, lon, nlat, nlon]).all()
+            or not (-90 <= lat <= 90 and -180 <= lon <= 180)
+            or not (-90 <= nlat <= 90 and -180 <= nlon <= 180)):
+        raise ValueError('Las coordenadas de la celda son inválidas.')
+    p1, p2 = np.radians([nlat, lat])
+    dp, dl = np.radians([lat - nlat, lon - nlon])
+    distancia = float(6371.0 * 2.0 * np.arcsin(np.sqrt(np.clip(
+        np.sin(dp / 2.0) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2.0) ** 2, 0, 1))))
+    if distancia > 40:
+        raise ValueError('La celda devuelta está a más de 40 km del punto solicitado.')
+    if (datos.get('timezone') not in ('America/Argentina/Buenos_Aires', 'America/Buenos_Aires')
+            or datos.get('utc_offset_seconds') != -10800):
+        raise ValueError('La zona horaria o el desplazamiento UTC de la respuesta no están verificados.')
+    hourly, units = datos.get('hourly'), datos.get('hourly_units')
+    if not isinstance(hourly, dict) or not isinstance(units, dict) or units.get('time') != 'iso8601':
+        raise ValueError('Faltan la serie horaria o sus unidades verificables.')
+    tiempos = hourly.get('time')
+    if not isinstance(tiempos, list) or not tiempos:
+        raise ValueError('La respuesta no contiene una grilla horaria utilizable.')
+    try:
+        horas = pd.DatetimeIndex(pd.to_datetime(tiempos, errors='coerce'))
+        if horas.tz is not None:
+            horas = horas.tz_convert(TZ).tz_localize(None)
+    except (TypeError, ValueError):
+        raise ValueError('Los horarios meteorológicos son inválidos o mezclan zonas horarias.') from None
+    if horas.isna().any() or not horas.is_unique or not horas.is_monotonic_increasing:
+        raise ValueError('Los horarios meteorológicos son inválidos, repetidos o están desordenados.')
+    if (horas != horas.floor('h')).any() or (len(horas) > 1
+            and not np.all(np.diff(horas.asi8) == pd.Timedelta(hours=1).value)):
+        raise ValueError('La grilla meteorológica no tiene pasos horarios continuos.')
+    try:
+        consulta = pd.Timestamp(datos.get('_consulta_meteorologica'))
+        if pd.isna(consulta) or consulta.tzinfo is None:
+            raise ValueError()
+        consulta = consulta.tz_convert(TZ)
+        if not -300 <= (ref - consulta).total_seconds() <= 1800:
+            raise ValueError()
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError('Consulta meteorológica vencida, futura o sin fecha verificable.') from None
+    if units.get('precipitation') != 'mm':
+        raise ValueError('La unidad de precipitación no está verificada en milímetros.')
+    lluvia = hourly.get('precipitation')
+    if not isinstance(lluvia, list) or len(lluvia) != len(horas):
+        raise ValueError('La precipitación no coincide en longitud con la grilla horaria.')
+
+    capas = ('soil_moisture_0_to_7cm', 'soil_moisture_7_to_28cm',
+             'soil_moisture_28_to_100cm', 'soil_moisture_100_to_255cm')
+    limpio = dict(hourly)
+    limpio['time'] = [hora.isoformat() for hora in horas]
+    problemas = []
+    for campo in ('precipitation', 'runoff') + capas:
+        esperada = 'm³/m³' if campo in capas else 'mm'
+        valores = hourly.get(campo)
+        if units.get(campo) != esperada:
+            limpio[campo] = [None] * len(horas)
+            problemas.append(campo + ': unidad ausente o no verificada; variable sin interpretar.')
+            continue
+        if not isinstance(valores, list) or len(valores) != len(horas):
+            limpio[campo] = [None] * len(horas)
+            problemas.append(campo + ': variable ausente o longitud incompatible; no se completa con cero.')
+            continue
+        normalizados = []
+        invalidos = 0
+        for valor in valores:
+            if valor is None:
+                normalizados.append(None)
+                continue
+            try:
+                if isinstance(valor, (bool, np.bool_)):
+                    raise ValueError()
+                numero = float(valor)
+                if np.isnan(numero):
+                    normalizados.append(None)
+                    continue
+                # A broad plausibility guard, never a flood-trigger threshold.
+                if (not np.isfinite(numero) or numero < 0
+                        or (campo in capas and numero > 1)
+                        or (campo in ('precipitation', 'runoff') and numero > 1000)):
+                    raise ValueError()
+                normalizados.append(numero)
+            except (TypeError, ValueError, OverflowError):
+                normalizados.append(None)
+                invalidos += 1
+        limpio[campo] = normalizados
+        if invalidos:
+            problemas.append(f'{campo}: {invalidos} valores inválidos quedaron sin dato; no afectan a otras variables.')
+
+    referencia_hora = ref.floor('h').tz_localize(None)
+    fechas_suelo = []
+    for campo in capas:
+        valores = np.asarray(limpio[campo], dtype=float)
+        posiciones = np.where((horas <= referencia_hora) & np.isfinite(valores))[0]
+        ultimo = horas[posiciones[-1]] if len(posiciones) else None
+        if ultimo is not None and pd.Timedelta(0) <= referencia_hora - ultimo <= pd.Timedelta(hours=3):
+            fechas_suelo.append(ultimo)
+        else:
+            limpio[campo] = [None if hora <= referencia_hora else valor
+                             for hora, valor in zip(horas, limpio[campo])]
+    sanear = globals().get('_sanear_variables_meteorologicas_opcionales')
+    if callable(sanear):
+        limpio = sanear(limpio, len(horas))
+    meta = {'consulta_meteorologica': consulta.isoformat(),
+            'referencia_datos': referencia_hora.tz_localize(TZ).isoformat(),
+            'celda_lat': lat, 'celda_lon': lon, 'distancia_celda_km': round(distancia, 2),
+            'capas_humedad_vigentes': len(fechas_suelo),
+            'fecha_humedad_suelo': min(fechas_suelo).tz_localize(TZ).isoformat() if fechas_suelo else None,
+            'problemas_variables_modelo': problemas}
+    return {**datos, 'hourly': limpio}, horas, meta
+# END FUENTES INDEPENDIENTES ZC 1.5.2
+
+# BEGIN FUENTES INDEPENDIENTES ZC 1.5.2 · carga_fuentes_disponibles_zc.py
+def asegurar_trimestral_zc(forzar=False, referencia=None):
+    """Consulta automática acotada; conserva archivos aportados y documentos previos."""
+    ref = _ui_fecha_local(referencia if referencia is not None else ahora())
+    guardado = st.session_state.get('ficha_trimestral')
+    if isinstance(guardado, dict) and guardado.get('aportado_por_usuario'):
+        return guardado
+    intento = _ui_fecha_local(st.session_state.get('zc_trimestral_ultimo_intento'))
+    edad = (ref - intento).total_seconds() if ref is not None and intento is not None else None
+    # El intento, incluido un fallo, se conserva para no repetir la descarga
+    # del PDF al cambiar localidad, radar u otro control de la aplicación.
+    if not forzar and isinstance(guardado, dict) and edad is not None and 0 <= edad < 21600:
+        return guardado
+    if ref is not None:
+        st.session_state['zc_trimestral_ultimo_intento'] = ref.isoformat()
+    try:
+        nuevo = consultar_trimestral()
+        if not isinstance(nuevo, dict):
+            nuevo = {'error': 'La consulta trimestral no devolvió un documento verificable.'}
+    except Exception:
+        nuevo = {'error': 'No se pudo completar la consulta del informe trimestral SMN.'}
+    if nuevo.get('error') and isinstance(guardado, dict) and not guardado.get('error'):
+        # Una caída posterior no borra el PDF ya obtenido. La consulta fallida
+        # se muestra separada de su emisión y no renueva la fecha del producto.
+        guardado = {**guardado, 'ultima_consulta_error': str(nuevo['error']),
+                    'ultima_consulta_intento': ref.isoformat() if ref is not None else None}
+        st.session_state['ficha_trimestral'] = guardado
+    else:
+        st.session_state['ficha_trimestral'] = nuevo
+    return st.session_state['ficha_trimestral']
+
+def resumen_trimestral_modelo_zc(informe, referencia=None):
+    """Describe únicamente documento, período y vigencia; no extrae riesgo local."""
+    ref = _ui_fecha_local(referencia if referencia is not None else ahora())
+    informe = informe if isinstance(informe, dict) else {}
+    if not informe or informe.get('error'):
+        return {'informe_smn_disponible': False,
+                'estado_documento': 'Sin documento trimestral recuperado',
+                'periodo': None, 'fecha_documento': None, 'fecha_consulta': None,
+                'url_documento': None,
+                'error_consulta': str(informe.get('error') or 'Documento no consultado o sin confirmar.')}
+    inicio = _ui_fecha_local(informe.get('inicio'))
+    fin = _ui_fecha_local(informe.get('fin'))
+    if inicio is None or fin is None or inicio >= fin or ref is None:
+        estado = 'Período del documento sin confirmar'
+    else:
+        estado = estado_periodo_trimestral(inicio, fin, referencia=ref)
+    return {'informe_smn_disponible': True, 'estado_documento': estado,
+            'periodo': informe.get('periodo'),
+            'fecha_documento': informe.get('emision'),
+            'fecha_consulta': informe.get('consulta'),
+            'url_documento': informe.get('url'),
+            'aportado_por_usuario': bool(informe.get('aportado_por_usuario')),
+            'error_consulta': informe.get('ultima_consulta_error') or ''}
+# END FUENTES INDEPENDIENTES ZC 1.5.2
+
 def analizar_atmosfera_predictiva_zc(nodo,payload,referencia=None):
     ref=_modelo_fecha_zc(referencia if referencia is not None else ahora())
     horizontes=horizontes_modelo_zc(ref)
     base=horizontes[0]['inicio']
     salida=[]
     try:
-        limpio,horas,meta=_validar_respuesta_meteorologica(nodo,payload,ref.floor('h').tz_localize(None))
+        limpio,horas,meta=_validar_respuesta_modelo_zc(nodo,payload,ref)
         consulta=_modelo_fecha_zc(meta.get('consulta_meteorologica'))
         if consulta is None or not -300<=(ref-consulta).total_seconds()<=1800:
             raise ValueError('Consulta meteorológica vencida, futura o sin fecha verificable.')
@@ -7022,7 +7366,7 @@ def analizar_atmosfera_predictiva_zc(nodo,payload,referencia=None):
             esperadas=pd.date_range(h['inicio']+pd.Timedelta(hours=1),h['fin'],freq='h')
             lluvia=p.reindex(esperadas); runoff=r.reindex(esperadas)
             validas=int(lluvia.notna().sum())
-            incertidumbres=[]
+            incertidumbres=list(meta.get('problemas_variables_modelo',[]))
             if validas<h['horas']:
                 incertidumbres.append(f"Lluvia: {validas}/{h['horas']} horas válidas; el horizonte no está completo.")
             if int(runoff.notna().sum())<h['horas']:
@@ -7054,6 +7398,8 @@ def analizar_atmosfera_predictiva_zc(nodo,payload,referencia=None):
             if not bloques:
                 incertidumbres.append('No hay un bloque completo de 72 horas dentro del horizonte para evaluar la regla combinada.')
             elegido=max(bloques,key=lambda b:(b['senal'],b['max_24_mm'],b['lluvia_72_mm'])) if bloques else None
+            if elegido and elegido['humedad_inicio_m3_m3'] is None:
+                incertidumbres.append('Suelo del bloque sin tres capas verificadas; no se asume humedad ni saturación.')
             if elegido and elegido['lluvia_fuerte'] and (elegido['humedad_inicio_m3_m3'] is None or elegido['runoff_72_mm'] is None):
                 incertidumbres.append('Uno o más agravantes de suelo/escurrimiento están sin confirmar; su ausencia no reduce la señal de lluvia.')
             max24s=lluvia.rolling(24,min_periods=24).sum()
@@ -7271,7 +7617,7 @@ def construir_modelo_predictivo_zc(nodos,payloads,pronosticos,rios,cap,shn,parte
                   'descripcion':'SMN trimestral y perspectivas de cuenca INA sirven para planificar. La categoría local no está extraída ni validada automáticamente; no se genera una alarma de evento ni se extrapolan alturas del río a meses.',
                   'fuentes':['https://www.smn.gob.ar/pronostico-trimestral','https://www.ina.gob.ar/alerta/index.php'],
                   'informe_smn_disponible':bool(clima and not clima.get('error')),
-                  'fecha_documento':clima.get('fecha_emision'),'periodo':clima.get('periodo')}
+                  **resumen_trimestral_modelo_zc(clima,ref)}
     estado_general=max(alertas,key=lambda a:a['prioridad'])['nivel'] if alertas else (
         'VERIFICACIÓN PENDIENTE · FUENTES LOCALES INCOMPLETAS' if incertidumbres_locales or any(a.get('senal') is None for a in atmosfera) else
         'SIN DISPARADOR EN VARIABLES EVALUADAS · REVISAR COBERTURA Y FUENTES')
@@ -7362,6 +7708,72 @@ def _modelo_horizontes_tabla_metricas(registros):
     return pd.DataFrame(filas)
 
 
+# BEGIN DATOS VISIBLES ZC 1.5.2
+# Presentación de datos del modelo: datos disponibles aunque no haya alertas.
+
+def resolver_fuente_modelo_zc(consulta,fallback,nombre):
+    try:
+        resultado=consulta() if callable(consulta) else consulta.result()
+        if not isinstance(resultado,dict):raise ValueError('Formato de fuente inválido')
+        return resultado
+    except Exception:
+        return {**fallback,'error':'No se completó la consulta de '+nombre+'. Las otras fuentes conservan sus datos.'}
+
+
+def _numero_visible_modelo_zc(valor,decimales=1,sufijo=''):
+    if isinstance(valor,(bool,np.bool_)):return 'Sin dato'
+    try:
+        numero=float(valor)
+        return f'{numero:.{decimales}f}'+sufijo if np.isfinite(numero) else 'Sin dato'
+    except (ValueError,TypeError,OverflowError):return 'Sin dato'
+
+
+def mostrar_datos_disponibles_modelo_zc(resultado):
+    st.subheader('Datos disponibles · lluvia, suelo y pronóstico del río')
+    st.caption('Una evaluación sin alertas puede tener datos completos. Cada variable conserva su valor, cobertura y fecha; una fuente ausente aparece como «Sin dato».')
+    horizontes=resultado.get('horizontes') or []
+    opciones=[h['id'] for h in horizontes if isinstance(h,dict) and h.get('id')]
+    etiquetas={h['id']:h.get('horizonte',h['id']) for h in horizontes if isinstance(h,dict) and h.get('id')}
+    if not opciones:
+        st.info('Los horizontes todavía no tienen una evaluación disponible.')
+        return
+    if st.session_state.get('zc_modelo_horizonte_datos') not in opciones:
+        st.session_state.pop('zc_modelo_horizonte_datos',None)
+    horizonte=st.selectbox('Horizonte de los datos',opciones,format_func=lambda x:etiquetas[x],key='zc_modelo_horizonte_datos')
+    atmosfera=[a for a in resultado.get('atmosfera',[]) if isinstance(a,dict) and a.get('id')==horizonte]
+    max24=[a.get('max_lluvia_24_mm') for a in atmosfera if a.get('max_lluvia_24_mm') is not None]
+    max72=[a.get('max_lluvia_72_mm') for a in atmosfera if a.get('max_lluvia_72_mm') is not None]
+    c1,c2,c3=st.columns(3)
+    c1.metric('Mayor acumulado previsto en 24 h',_numero_visible_modelo_zc(max(max24) if max24 else None,sufijo=' mm'))
+    c2.metric('Mayor acumulado previsto en 72 h',_numero_visible_modelo_zc(max(max72) if max72 else None,sufijo=' mm'))
+    c3.metric('Puntos con lluvia disponible',str(sum(a.get('horas_lluvia_validas',0)>0 for a in atmosfera))+'/'+str(len(atmosfera)))
+    filas=[]
+    for a in atmosfera:
+        b=a.get('bloque_evaluado') or {}
+        filas.append({'Referencia local':a.get('localidad'),'Máximo 24 h · mm':_numero_visible_modelo_zc(a.get('max_lluvia_24_mm')),
+            'Máximo 72 h · mm':_numero_visible_modelo_zc(a.get('max_lluvia_72_mm')),
+            'Antecedente 7 días · mm':_numero_visible_modelo_zc(a.get('lluvia_previa_7d_mm')),
+            'Suelo al inicio del bloque · m³/m³':_numero_visible_modelo_zc(b.get('humedad_inicio_m3_m3'),3),
+            'Escurrimiento del bloque 72 h · mm':_numero_visible_modelo_zc(b.get('runoff_72_mm')),
+            'Horas de lluvia':str(a.get('horas_lluvia_validas',0))+'/'+str(a.get('horas',0)),
+            'Horas de escurrimiento':str(a.get('horas_runoff_validas',0))+'/'+str(a.get('horas',0)),
+            'Consulta':_modelo_horizontes_fecha(a.get('consulta')),
+            'Hasta dónde hay datos':_modelo_horizontes_fecha(a.get('fin_datos')),
+            'Estado de datos':a.get('error') or ('Ventana completa de lluvia y escurrimiento' if a.get('completo') else 'Ventana o variables parciales')})
+    st.dataframe(pd.DataFrame(filas),hide_index=True,use_container_width=True)
+    st.caption('Los máximos de lluvia se buscan dentro del horizonte elegido. Suelo y escurrimiento corresponden al mismo bloque de 72 horas evaluado; no se trasladan entre eventos. El extendido muestra sólo las horas realmente publicadas.')
+    rios=[r for r in resultado.get('rios',[]) if isinstance(r,dict) and r.get('id')==horizonte]
+    filas_rios=[{'Estación':r.get('estacion'),'Máximo previsto · escala de pronóstico (m)':_numero_visible_modelo_zc(r.get('maximo_m_serie_pronostico'),2),
+        'Hora del máximo':_modelo_horizontes_fecha(r.get('fecha_maximo')),'Puntos publicados':r.get('n_horas_publicadas',0),
+        'Emisión INA':_modelo_horizontes_fecha(r.get('emision')),
+        'Último punto publicado':_modelo_horizontes_fecha(r.get('fin_publicado')),
+        'Vigencia':('Pronóstico de hasta 6 horas' if r.get('vigente') else 'Corrida antigua o vigencia sin confirmar') if r.get('n_horas_publicadas') else 'Sin pronóstico para este plazo'} for r in rios]
+    st.markdown('**Pronóstico fluvial por estación**')
+    st.dataframe(pd.DataFrame(filas_rios),hide_index=True,use_container_width=True)
+    st.caption('Una corrida antigua se conserva como contexto con su emisión y no activa señales automáticas. El pronóstico local del río no se extiende a días o meses que la fuente no publicó. Sus alturas no se comparan con otra escala sin equivalencia documentada.')
+
+# END DATOS VISIBLES ZC 1.5.2
+
 def mostrar_modelo_predictivo_zc(resultado):
     resultado=resultado if isinstance(resultado,dict) else {}
     st.header('🌊 Modelo integrado · vigilancia predictiva de inundaciones')
@@ -7373,6 +7785,7 @@ def mostrar_modelo_predictivo_zc(resultado):
     else:
         st.info('**'+estado+'**')
     st.caption('Modelo experimental de reglas, con calibración local pendiente. Los resultados sirven para preparar medidas; no expresan una probabilidad de inundación ni una orden de evacuación. Lluvia, río y estuario conservan sus escalas y áreas de influencia.')
+    mostrar_datos_disponibles_modelo_zc(resultado)
 
     alertas=[x for x in (resultado.get('alertas') or []) if isinstance(x,dict)]
     st.subheader('Lugar, período y mecanismo de cada señal')
@@ -7438,6 +7851,17 @@ def mostrar_modelo_predictivo_zc(resultado):
     st.write('**'+_modelo_horizontes_texto(clima.get('estado'),'Contexto climático pendiente')+'**')
     st.write(_modelo_horizontes_texto(clima.get('descripcion'),'Revisá el trimestre y las leyendas del informe SMN disponible en Datos oficiales.'))
     st.caption('La perspectiva climática orienta preparación estacional. No asigna una fecha de inundación, y sus categorías no se convierten en probabilidades de inundación local.')
+    if clima.get('informe_smn_disponible'):
+        st.write('**Trimestre del documento disponible:** '+_modelo_horizontes_texto(clima.get('periodo')))
+        fecha_documento=_ui_fecha_local(clima.get('fecha_documento'))
+        st.caption('Fecha de emisión identificada en el PDF: '+(fecha_documento.strftime('%d/%m/%Y')+' · sin hora identificada' if fecha_documento is not None else 'Sin confirmar')+' · consulta: '+_modelo_horizontes_fecha(clima.get('fecha_consulta')))
+        estado_periodo={'vigente':'Trimestre que comienza este mes','vigente_iniciado_antes':'Incluye la fecha actual; comenzó en un mes anterior',
+            'previsto':'Trimestre futuro','vencido':'Trimestre vencido; antecedente documental'}.get(clima.get('estado_documento'),'Período sin confirmar')
+        st.caption('Estado del período: '+estado_periodo+'. El documento completo, sus mapas y leyendas están en Datos oficiales SMN.')
+    else:
+        st.warning('Informe trimestral sin recuperar: '+_modelo_horizontes_texto(clima.get('error_consulta')))
+    if clima.get('error_consulta') and clima.get('informe_smn_disponible'):
+        st.warning('La última actualización del documento no se completó. Se conserva la edición disponible con su emisión original.')
     fuentes=clima.get('fuentes') or []
     if fuentes:
         from urllib.parse import urlparse
@@ -7449,7 +7873,7 @@ def mostrar_modelo_predictivo_zc(resultado):
             else:
                 st.caption(_modelo_horizontes_texto(fuente))
 
-    with st.expander('Métricas atmosféricas y fluviales utilizadas',expanded=False):
+    with st.expander('Métricas atmosféricas y fluviales utilizadas',expanded=True):
         st.markdown('**Atmósfera por referencia local y horizonte**')
         filas_atmosfera=[]
         for a in resultado.get('atmosfera',[]):
@@ -7510,6 +7934,7 @@ def actualizar_fuentes_zc():
     for clave in ('df_alerta', 'raw_ecmwf', 'df_operativo', '_zc_meteo_ultimo_intento',
                   'zc_relieve', 'ficha_sat_catalogo','zc_ina_observaciones_guardadas',
                   'zc_alturas_locales_resultado',
+                  'zc_trimestral_ultimo_intento',
                   'zc_cuenca_resultado','zc_cuenca_decision','zc_cuenca_hist_catalogo','zc_cuenca_hist_resultados'):
         st.session_state.pop(clave, None)
     informe = st.session_state.get('ficha_trimestral')
