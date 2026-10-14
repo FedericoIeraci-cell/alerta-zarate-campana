@@ -3191,11 +3191,9 @@ def descargar_publico_con_respaldo_zc(url, headers=None, timeout=(3, 8), max_byt
 # END DESCARGAS PUBLICAS ZC 1.5.2
 
 # BEGIN REFERENCIAS DOCUMENTALES ZC 1.5.2
-"""Referencias documentales verificadas; se muestran separadas de las consultas vivas.
-
-Las fechas son las de la evidencia original. Estas constantes no reemplazan
-fuentes actuales, no se conectan al motor y nunca cambian su fecha al abrir la app.
-"""
+# Referencias documentales verificadas, separadas de las consultas vivas.
+# Las fechas son las de la evidencia original; no se renuevan al abrir la app.
+# Estas referencias no reemplazan fuentes actuales ni se conectan al motor.
 
 REFERENCIA_DOCUMENTAL_TRIMESTRAL_ZC = {
     'tipo': 'referencia_documental',
