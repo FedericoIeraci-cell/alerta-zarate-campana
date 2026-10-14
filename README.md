@@ -1,82 +1,54 @@
-# A.L.A. · Zárate–Campana
+# Alerta Zárate–Campana · ZC 1.6.0
 
-Adaptación de Alerta Litoral Agro para los partidos de Zárate y Campana, Buenos Aires. Conserva el panel meteorológico, el índice experimental, las recomendaciones, el mapa, el pronóstico, las herramientas de fuentes y la vigilancia de Telegram de A.L.A.
+Herramienta experimental de apoyo a decisiones para Zárate, Campana y referencias del Delta. Integra lluvia modelada, suelo y escurrimiento, alertas SMN, radar SINARAME, alturas y pronósticos INA, Prefectura y contexto de la cuenca del Paraná.
 
-## Publicar como una aplicación nueva en Streamlit
+[Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
 
-1. Descomprimí este paquete y creá un **repositorio nuevo** en GitHub, por ejemplo `alerta-zarate-campana`.
-2. Subí **todos los archivos** del paquete respetando las carpetas. `app.py`, `hydrology_zc.py`, `monitor.py`, `requirements.txt` y `requirements_monitor.txt` van en la raíz. El workflow va en `.github/workflows/zc-monitor.yml`.
-3. En Streamlit Community Cloud elegí **Create app**, el nuevo repositorio, su rama principal y `app.py`. Elegí Python **3.12**.
-4. Publicá la aplicación con un nombre propio. El nombre `alerta-zarate-campana` es una sugerencia; su disponibilidad debe comprobarse al publicar.
+## Red integrada Litoral–Zárate–Campana
 
-Para probarla en tu computadora:
+Las dos aplicaciones tienen una solapa **Red integrada** que consulta el mismo informe público: `red_integrada.json` en la rama `ala-monitor-state` del repositorio Alerta-Litoral.
+
+El informe reúne los **48 puntos del Litoral y 10 referencias meteorológicas de Zárate–Campana**, estaciones y pronósticos fluviales oficiales disponibles y reportes de represas. Conserva fechas, cobertura y fuentes. Los puntos cercanos pueden representar la misma celda meteorológica.
+
+El monitor existente de ALA prepara el informe común después de guardar su evaluación regional. La consulta adicional de Zárate–Campana no incorpora nuevos candidatos ni destinatarios a Telegram. Cada aplicación conserva sus criterios y registros regionales; el informe común no activa una orden de evacuación.
+
+Un informe con más de 3 horas se señala como vencido. Las alturas y corridas locales de Zárate–Campana también se revisan con un máximo de 6 horas; la fecha de generación del informe no renueva una lectura antigua. No se suman caudales de estaciones sucesivas ni se calcula una hora de llegada desde las compuertas.
+
+Para actualizar, incluí `red_integrada.py` en la raíz de ambos repositorios. ALA también requiere el `monitor.py` actualizado. Una prueba de consulta y exportación sin envíos es:
+
+```bash
+python monitor.py --dry-run --export-red red_integrada_revision.json
+```
+
+[Abrir Alerta Litoral Agro](https://alerta-litoral-agro.streamlit.app/) · [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
+
+## Modelo local y datos disponibles
+
+La solapa **Modelo de inundaciones** muestra variables atmosféricas por horizonte, previsiones fluviales, fechas, horas disponibles y limitaciones. Una fuente fallida no elimina variables válidas de otras fuentes. Un valor ausente se conserva como desconocido y no se convierte en cero.
+
+Los horizontes atmosféricos son corto (0–72 h), mediano (días 4–7) y extendido (días 8–15). Se presenta únicamente la cobertura publicada, sin prolongar un pronóstico más corto. La perspectiva trimestral SMN describe tendencias del período; no determina una probabilidad local de inundación ni anticipa una tormenta puntual.
+
+Las observaciones locales INA corresponden a las series 40 (Zárate) y 41 (Campana). Los pronósticos locales usan otras escalas: 29534 y 3405. Sin una equivalencia vertical documentada, no se comparan sus valores con los umbrales de las series observadas ni con la cota del terreno.
+
+Cuando falla la consulta actual, las referencias documentales guardadas se muestran con sus fechas originales y su condición de archivo. No acreditan alturas actuales ni generan alertas. Los umbrales de Prefectura e INA se mantienen identificados por fuente.
+
+## Uso y validación
+
+El índice meteorológico y el modelo de inundaciones siguen siendo experimentales. Los pesos y umbrales requieren validación con episodios locales y controles negativos documentados. El color meteorológico no descarta una crecida, una sudestada o un riesgo local.
+
+Los puntos son referencias para celdas del modelo, no estaciones instaladas ni polígonos de barrios. Las rutas, refugios, capacidades sanitarias y partes locales requieren fuentes y vigencia verificadas. La página no acredita inventarios municipales completos ni emite órdenes oficiales de evacuación.
+
+## Telegram
+
+La conexión común comparte información con ALA. **Telegram de Zárate–Campana permanece pendiente**, según la decisión del proyecto. Esta actualización no crea un bot, no agrega destinatarios y no activa avisos automáticos locales. No se debe copiar el SQLite del canal ALA a este repositorio.
+
+## Archivos y ejecución
+
+La aplicación publicada usa `app.py`, `red_integrada.py` y `requirements.txt` en la raíz. Conservá también los módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
+
+Para abrir el panel local:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m streamlit run app.py
 ```
-
-La aplicación del Litoral y esta adaptación tienen datos y registros separados. No copies el registro de alertas del Litoral al proyecto nuevo.
-
-## Qué representa el semáforo
-
-El semáforo **VERDE / AMARILLO / ROJO** resume el índice meteorológico experimental de A.L.A. El índice se basa en precipitación modelada reciente y futura, humedad modelada del suelo y runoff. Sus umbrales heredados **no están calibrados ni validados históricamente para estos partidos**. No es una probabilidad de inundación ni un nivel oficial del SMN.
-
-Los puntos son referencias geográficas aproximadas para consultar el modelo. No representan estaciones instaladas, polígonos de barrios ni cobertura completa de cada partido. La aplicación conserva el endpoint ECMWF de A.L.A.; no presupone una resolución de 9 km que esta consulta no permite confirmar. Los puntos cercanos pueden compartir la celda devuelta por el modelo y sus datos. En el Delta, la humedad terrestre modelada no describe el nivel de los canales.
-
-Los datos faltantes no se convierten en cero ni en verde. Las fallas de SMN e INA se muestran como información no verificada. Las rutas dibujadas no acreditan transitabilidad; los refugios y la capacidad sanitaria requieren confirmación municipal.
-
-## Río y sudestada
-
-La sección del río consulta los pronósticos experimentales del INA para **Zárate y Campana**, con fecha de emisión, serie y corrida. Sólo muestra horas futuras disponibles dentro de las próximas 96 horas. Si la corrida tiene más de seis horas, señala el atraso. El máximo mostrado corresponde al período disponible, que puede ser menor de cuatro días.
-
-Las alturas de cada escala no son cotas del terreno ni profundidad de inundación en barrios. Las bandas se reproducen como las publica INA. No se importan umbrales de otras estaciones ni se emite una orden de evacuación desde estos pronósticos. La consulta de alturas observadas se valida por identidad de serie y unidad; puede estar indisponible aunque el pronóstico funcione.
-
-**Un semáforo verde de lluvia no descarta riesgo fluvial, mareológico o de sudestada.** El panel INA queda separado del índice meteorológico. El SHN se incluye como contexto del estuario; sus estaciones no se presentan como mediciones locales.
-
-## Telegram y vigilancia con la página cerrada
-
-El paquete incluye un monitor programable de GitHub Actions, equivalente al de A.L.A. Se evalúa al minuto 17 de cada hora. La entrega de los archivos no activa la programación ni configura las credenciales.
-
-En el **repositorio nuevo**, abrí Settings → Secrets and variables → Actions y agregá:
-
-| Nombre | Valor |
-| --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Token de tu bot, sólo en Secrets |
-| `TELEGRAM_CHAT_ID` | Identificador del chat o `@nombre_del_canal` |
-
-El bot debe tener acceso al destino. Si usás un canal, debe poder publicar allí. Podés usar el mismo bot; cada mensaje identifica Zárate–Campana. Para separar los avisos a los usuarios, configurá un chat o canal propio.
-
-En **Actions → Alerta Zárate–Campana - vigilancia → Run workflow**, hacé primero una ejecución con `dry_run` activado. Comprueba datos sin enviar mensajes ni modificar el registro. Para iniciar la vigilancia, ejecutá otra vez con `dry_run` desactivado.
-
-La primera evaluación válida establece una referencia, sin reenviar episodios rojos ya presentes. Luego avisa nuevos cambios a rojo y actualizaciones que cumplen las reglas heredadas de A.L.A. Guarda la reserva en GitHub antes de enviar para evitar duplicaciones entre controles. Los resultados inciertos no se reenvían automáticamente. `SIN DATOS` no cierra episodios.
-
-El registro se guarda en la rama **`zc-monitor-state`**. Conservá esa rama. Si el repositorio es público, en **Secrets de Streamlit** agregá:
-
-```toml
-ALA_MONITOR_REPOSITORY = "tu_usuario/alerta-zarate-campana"
-```
-
-Este nombre de configuración se conserva por compatibilidad con A.L.A.; el valor debe apuntar al **repositorio nuevo**. El panel sólo confirma vigilancia con un informe reciente. Si el repositorio es privado, comprobá los controles directamente en Actions.
-
-El monitor automático evalúa **únicamente el índice meteorológico ECMWF**. No envía alertas automáticas de río, sudestada, SMN ni capas cargadas en el navegador. La página puede probar el envío manual si configurás también el bot y el chat en Secrets de Streamlit. No publiques tokens en archivos ni capturas.
-
-GitHub Actions puede demorar ejecuciones y su programación no garantiza disponibilidad continua. Confirmá las ejecuciones en Actions y el último control mostrado en la página. La ausencia de un mensaje no confirma ausencia de peligro.
-
-## Fuentes y contactos
-
-Fuentes revisadas para esta adaptación el 12/10/2026:
-
-- [Open-Meteo · ECMWF](https://open-meteo.com/en/docs/ecmwf-api).
-- [SMN · alertas oficiales](https://www.smn.gob.ar/alertas).
-- [SMN · radar](https://www.smn.gob.ar/radar/).
-- [INA · pronóstico local a cuatro días](https://www.ina.gov.ar/alerta/index.php?seccion=10).
-- [INA · visualizador hidrológico](https://alerta.ina.gob.ar/).
-- [Prefectura · alturas](https://contenidosweb.prefecturanaval.gob.ar/alturas/).
-- [SHN · pronóstico mareológico](https://www.hidro.gov.ar/oceanografia/pronostico.asp).
-- [Municipalidad de Zárate · teléfonos útiles](https://zarate.gob.ar/telefonos-utiles/).
-- [Municipalidad de Campana · teléfonos útiles](https://www.campana.gob.ar/telefonos-utiles/).
-
-Defensa Civil **103**, Bomberos **100**, Policía **911**. Campana: SAME **107**. Consultá a los municipios por recorridos, centros habilitados y necesidades de evacuación.
-
-La adaptación es un prototipo de apoyo a decisiones. Las advertencias y órdenes oficiales tienen prioridad.
