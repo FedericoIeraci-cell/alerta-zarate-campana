@@ -107,7 +107,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.5.2"
+VERSION = "ZC 1.6.0"
 
 
 
@@ -8099,10 +8099,16 @@ def render_app():
     # SMN — DATOS EN DIRECTO
     # ============================================================
 
-    tab_agro, tab_modelo, tab_radar, tab_smn, tab_fuentes, tab_enos, tab_territorio, tab_historia, tab_cuenca = st.tabs([
-        "🌧️ Alerta local", "🌊 Modelo de inundaciones", "📡 Radar regional", "🇦🇷 Datos oficiales SMN",
+    tab_agro, tab_red, tab_modelo, tab_radar, tab_smn, tab_fuentes, tab_enos, tab_territorio, tab_historia, tab_cuenca = st.tabs([
+        "🌧️ Alerta local", "🌐 Red integrada", "🌊 Modelo de inundaciones", "📡 Radar regional", "🇦🇷 Datos oficiales SMN",
         "🌱 Suelo y ríos", "🌊 El Niño / La Niña", "🗺️ Territorio y accesos", "📘 Método y validación local", "🏞️ Cuenca del Paraná",
     ])
+    with tab_red:
+        try:
+            from red_integrada import mostrar_red_integrada
+            mostrar_red_integrada(st, repository="FedericoIeraci-cell/Alerta-Litoral", app_actual="zc")
+        except Exception:
+            st.warning("No se pudo cargar la información compartida en esta consulta. Los paneles regionales siguen disponibles; no se confirma el estado de la red.")
     with tab_radar:
         mostrar_radar_smn()
     with tab_smn:
