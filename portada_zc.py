@@ -273,21 +273,11 @@ def acciones_portada_zc(prioridad, publico):
 
 def mostrar_portada_zc(st, resumen):
     ref = resumen["referencia"]
-    st.subheader("Qué pasa y cómo prepararte")
     etiquetas = {2: "🟠 Atención preventiva alta", 1: "🟡 Preparar medidas", 0: "🔵 Mantener vigilancia", None: "⚪ Verificación pendiente"}
-    st.markdown("### " + etiquetas[resumen["prioridad"]])
+    st.subheader(etiquetas[resumen["prioridad"]])
     st.caption(resumen["alcance_estado"] + " · evaluación: " + _hora(resumen["fecha_evaluacion"], ref))
-    st.markdown('**Qué motiva esta preparación**')
-    for causa in resumen['causas']:
-        st.write('• '+causa)
-    st.caption("La preparación abarca los sectores mencionados en la evidencia. La lluvia y el río de tu referencia se muestran por separado; un color meteorológico bajo no descarta una crecida.")
-    publico = st.radio("Ver acciones para", ["Mi hogar / mi comunidad", "Productor / trabajo rural"],
-                       horizontal=True, key="zc_portada_publico")
-    with st.container(border=True):
-        st.markdown("**Qué hacer ahora**")
-        for accion in acciones_portada_zc(resumen["prioridad"], publico):
-            st.write("• " + accion)
-        st.caption("Si hay agua creciente o peligro: no cruces agua y pedí asistencia. Seguí las indicaciones de la autoridad local para resguardo o evacuación.")
+    st.markdown('**Qué motiva esta preparación**\n\n' + '\n'.join('- '+causa for causa in resumen['causas']))
+    st.caption("La preparación abarca los sectores mencionados. Un color meteorológico bajo no descarta una crecida; revisá también el río y los avisos.")
 
     lluvia, rio, represa, smn = (resumen[k] for k in ("lluvia", "rio", "represa", "smn"))
     for bloques in (("lluvia", "rio"), ("represa", "smn")):
@@ -339,6 +329,13 @@ def mostrar_portada_zc(st, resumen):
                             st.link_button("Abrir aviso oficial", aviso["fuente"], key="zc_portada_smn_"+str(i))
                         st.caption("La coincidencia corresponde al punto o al partido mencionado; revisá el área exacta del aviso.")
                         st.link_button("Todos los avisos · SMN", smn["fuente"], key="zc_portada_smn")
+    publico = st.radio("Ver acciones para", ["Mi hogar / mi comunidad", "Productor / trabajo rural"],
+                       horizontal=True, key="zc_portada_publico")
+    with st.container(border=True):
+        st.markdown("**Qué hacer ahora**")
+        for accion in acciones_portada_zc(resumen["prioridad"], publico):
+            st.write("• " + accion)
+        st.caption("Si hay agua creciente o peligro: no cruces agua y pedí asistencia. Seguí las indicaciones de la autoridad local para resguardo o evacuación.")
     if resumen["faltantes"]:
         st.markdown("**Qué falta confirmar para decidir**")
         for falta in resumen["faltantes"]:
