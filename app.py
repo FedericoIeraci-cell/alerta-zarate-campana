@@ -8107,7 +8107,7 @@ def mostrar_resumen_meteorologico_zc(df):
 
 def cargar_red_integrada_zc():
     import red_integrada as red
-    if getattr(red,'VERSION_RED',None) != '2026-10-18.1':
+    if getattr(red,'VERSION_RED',None) != '2026-10-18.2':
         red=importlib.reload(red)
     return red
 
