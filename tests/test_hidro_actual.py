@@ -57,10 +57,21 @@ class LecturasTests(unittest.TestCase):
         self.assertEqual(zarate['fecha'],'2026-10-18T03:00:00+00:00')
         self.assertEqual(zarate['estado'],'LECTURA ATRASADA')
         self.assertEqual(zarate['consulta'],NOW.isoformat())
+        self.assertEqual(zarate['precision_fecha'],'fecha_registro_fuente')
+        self.assertEqual(hidro._fecha(zarate['fecha_registro']),hidro._fecha(zarate['fecha']))
+        self.assertIn('hora de medición no confirmada',panel.hora(zarate['fecha'],zarate['precision_fecha']))
         self.assertNotIn('alerta_m',zarate)
         faltante = next(d for d in datos if d['serie']==8)
         self.assertIsNone(faltante['altura_m'])
         self.assertTrue(faltante['error'])
+
+    def test_registro_ina_y_hora_de_medicion_confirmada_se_presentan_distintos(self):
+        fecha='2026-10-18T03:00:00Z'
+        registro=panel.hora(fecha,'fecha_registro_fuente')
+        self.assertIn('18/10/2026 00:00 ART',registro)
+        self.assertIn('registro de la fuente; hora de medición no confirmada',registro)
+        self.assertEqual(panel.hora(fecha,'fecha_hora_publicada'),'18/10/2026 00:00 ART')
+        self.assertEqual(panel.hora(None,'fecha_registro_fuente'),'Sin fecha confirmada')
 
     def test_ina_rechaza_otra_escala_red_variable_duplicado_y_fecha_futura(self):
         for key,value in [('nombre','Otra estación'),('tabla','sat2'),('var_id',1),

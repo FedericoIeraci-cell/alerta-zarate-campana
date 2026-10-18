@@ -171,7 +171,9 @@ def parsear_rios(payload, referencia=None):
     salida = []
     for sid,nombre in ESTACIONES.items():
         item = {'nombre':nombre,'serie':sid,'fecha':None,'altura_m':None,'fuente':url_rios(),
-                'tipo':'lectura_ina','consulta':ref.isoformat(),'error':'Serie ausente o identidad no verificada.'}
+                'tipo':'lectura_ina','consulta':ref.isoformat(),'error':'Serie ausente o identidad no verificada.',
+                'precision_fecha':'fecha_registro_fuente', 'automatica':None,
+                'nota_fecha':'Fecha y hora del registro INA; la hora de medición no está confirmada.'}
         filas = [f.get('properties',{}) for f in payload['features'] if isinstance(f,dict)
                  and isinstance(f.get('properties'),dict) and f['properties'].get('series_id')==sid]
         if (len(filas)==1 and filas[0].get('tabla')=='alturas_prefe' and filas[0].get('var_id')==2
@@ -180,7 +182,7 @@ def parsear_rios(payload, referencia=None):
             # Se conserva la fecha registrada por INA; puede corresponder a un dato diario.
             fecha,valor = _fecha(p.get('fecha')),_numero(p.get('valor'))
             if fecha and fecha<=ref and valor is not None:
-                item.update(fecha=fecha.isoformat(),altura_m=valor,error='')
+                item.update(fecha=fecha.isoformat(),fecha_registro=p['fecha'],altura_m=valor,error='')
         salida.append(estado_lectura(item,ref))
     return salida
 
