@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.9.0"
+VERSION = "ZC 1.9.1"
 
 
 
@@ -8513,18 +8513,15 @@ def render_app():
             "Los puntos grises indican información insuficiente; no son riesgo bajo."
         )
 
-        fig_mapa = crear_mapa(
-            df_alerta
-        )
-
-        st.plotly_chart(
-            fig_mapa,
-            use_container_width=True,
-            config={
-                "scrollZoom": True,
-                "displaylogo": False,
-            },
-        )
+        from mapa_litoral import html_mapa_litoral
+        from portada_zc import hover_meteorologico_zc
+        referencia_mapa = ahora()
+        components.html(html_mapa_litoral(df_alerta, {},
+                        tarjeta_nodo=lambda row: hover_meteorologico_zc(row, referencia_mapa),
+                        altura=540, ajustar_a='puntos',
+                        titulo='Referencias meteorológicas de Zárate–Campana',
+                        leyenda='Índice meteorológico experimental'),
+                        height=540, scrolling=False)
 
 
         st.header(
