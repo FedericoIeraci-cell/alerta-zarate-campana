@@ -1,5 +1,8 @@
 """Interacciones reales de Streamlit; no realizan consultas externas."""
+import ast
+import json
 from pathlib import Path
+import re
 import unittest
 from unittest.mock import patch
 
@@ -15,6 +18,77 @@ class PortadaStreamlitTests(unittest.TestCase):
         resumenes=[m.value for m in at.markdown if '<section class="zc-portada"' in m.value]
         self.assertEqual(len(resumenes),1)
         return CifrasHTML(resumenes[0]).cifras[clave]['texto']
+
+    def test_mapa_iframe_conserva_diez_referencias_y_su_alcance_meteorologico(self):
+        # Ejecutar la llamada de render_app evita mantener una copia de su
+        # integración. El resto de la aplicación consulta fuentes externas.
+        arbol=ast.parse((ROOT/'app.py').read_text(encoding='utf-8'))
+        render=next(n for n in arbol.body if isinstance(n,ast.FunctionDef) and n.name=='render_app')
+        llamadas=[n for n in ast.walk(render) if isinstance(n,ast.Expr)
+                  and isinstance(n.value,ast.Call)
+                  and any(isinstance(c,ast.Call) and isinstance(c.func,ast.Name)
+                          and c.func.id=='html_mapa_litoral' for c in ast.walk(n))]
+        self.assertEqual(len(llamadas),1,'La portada debe integrar un solo mapa local')
+        codigo=PATHS+'''
+import streamlit as st
+import streamlit.components.v1 as components
+import pandas as pd
+from test_evidencia_app_zc import cargar_app, REF
+from test_portada_zc import localidad
+from mapa_litoral import html_mapa_litoral
+from portada_zc import hover_meteorologico_zc
+app=cargar_app()
+app.ahora=lambda: REF
+referencia_mapa=REF
+filas=[]
+for i,nodo in enumerate(app.NODOS):
+    fila={**localidad(),**nodo,'indice':[10.,45.,70.,None][i%4],
+          'actualizado':REF.strftime('%d/%m/%Y %H:%M'),
+          'estado_datos':'OK' if i%4!=3 else 'PARCIAL',
+          'cobertura_meteorologica':i%4!=3,
+          'nivel_integrado':'ROJO','fuente_meteorologica':'https://api.open-meteo.com/v1/forecast'}
+    if i%4==3:
+        fila.update({campo:None for campo in ('lluvia_futura_24','lluvia_futura_72',
+                    'lluvia_futura_7d','humedad_suelo_promedio','runoff_futuro_72')})
+    filas.append(fila)
+df_alerta=app.integrar_semaforo(pd.DataFrame(filas))
+original=df_alerta.copy(deep=True)
+st.session_state['zc_cuenca_decision']={'prioridad':2,'motivos':['Referencia de río alcanzada en Campana.']}
+'''+ast.unparse(llamadas[0])+'''
+pd.testing.assert_frame_equal(df_alerta,original)
+assert st.session_state['zc_cuenca_decision']=={'prioridad':2,'motivos':['Referencia de río alcanzada en Campana.']}
+st.session_state['mapa_esperado']={r['localidad']:r['nivel'] for r in df_alerta.to_dict('records')}
+'''
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('Red bloqueada')), \
+                patch('urllib.request.OpenerDirector.open',side_effect=AssertionError('Red bloqueada')):
+            at=AppTest.from_string(codigo).run()
+        self.assertFalse(at.exception)
+        mapas=[x for x in at.get('iframe') if 'id="mapa-litoral"' in x.proto.srcdoc]
+        self.assertEqual(len(mapas),1)
+        bloque=re.search(r'<script id="mapa-litoral-datos" type="application/json">(.*?)</script>',
+                         mapas[0].proto.srcdoc,re.S)
+        self.assertIsNotNone(bloque)
+        datos=json.loads(bloque.group(1))
+        self.assertEqual(datos['leyenda'],'Índice meteorológico experimental')
+        self.assertEqual(datos['ajustar_a'],'puntos')
+        self.assertEqual(datos['geometrias']['features'],[])
+        self.assertEqual(datos['omitidos'],0)
+        self.assertEqual(len(datos['puntos']),10)
+        self.assertEqual({p['nombre']:p['nivel'] for p in datos['puntos']},
+                         at.session_state['mapa_esperado'])
+        self.assertEqual({p['nivel'] for p in datos['puntos']},
+                         {'VERDE','AMARILLO','ROJO','SIN DATOS'})
+        for punto in datos['puntos']:
+            self.assertIn('Semáforo meteorológico: '+punto['nivel'],punto['popup'])
+            self.assertIn('Cálculo: 17/10/2026 18:00',punto['popup'])
+            self.assertIn('Río y preparación regional: consultar la ficha superior.',punto['popup'])
+            if punto['nivel']=='SIN DATOS':
+                self.assertEqual(punto['color'],'#64748b')
+                self.assertIn('Sin dato',punto['popup'])
+                self.assertNotIn('7.1 mm',punto['popup'])
+            else:
+                self.assertIn('Lluvia prevista · 72 h: 7.1 mm',punto['popup'])
+                self.assertIn('0.300 m³/m³',punto['popup'])
 
     def test_localidad_y_publico_actualizan_la_ficha_sin_perder_ausencias(self):
         codigo=PATHS+'''

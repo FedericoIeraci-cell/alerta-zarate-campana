@@ -1,8 +1,12 @@
-# Alerta Zárate–Campana · ZC 1.9.0
+# Alerta Zárate–Campana · ZC 1.9.1
 
 Herramienta experimental de apoyo a decisiones para Zárate, Campana y referencias del Delta. Integra lluvia modelada, suelo y escurrimiento, alertas SMN, radar SINARAME, alturas y pronósticos INA, Prefectura y contexto de la cuenca del Paraná.
 
 [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
+
+## Corrección visual 1.9.1
+
+El mapa de referencias utiliza dibujo 2D con Leaflet incluido en la aplicación. Conserva los puntos y sus explicaciones aunque el navegador no pueda usar WebGL o falle el fondo de OpenStreetMap. La vista se ajusta a las diez referencias locales; mantiene el significado meteorológico de sus colores y no modifica la preparación regional.
 
 ## Cambios de la versión 1.9.0
 
