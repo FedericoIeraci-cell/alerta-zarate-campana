@@ -39,5 +39,5 @@ jobs:
         run: node tests/test_ubicacion_js.cjs
       - name: Verificar datos, vigencias e interacciones sin red
         run: |
-          python -m py_compile app.py red_integrada.py portada_zc.py ubicacion_local.py
+          python -m py_compile app.py hidrometria_local.py red_integrada.py portada_zc.py ubicacion_local.py
           python -m unittest discover -s tests -v

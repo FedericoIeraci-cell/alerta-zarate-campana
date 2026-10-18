@@ -1,12 +1,37 @@
 """La ficha pública conserva ausencias, fechas, escalas y alcance regional."""
 from copy import deepcopy
 from datetime import datetime, timedelta
+from html.parser import HTMLParser
 import unittest
 
-from portada_zc import (TZ, construir_portada_zc, hover_meteorologico_zc,
+from portada_zc import (TZ, construir_portada_zc, hover_meteorologico_zc, html_resumen_portada_zc,
                         resumir_lluvia, resumir_represa, resumir_rio, resumir_smn)
 
 REF = datetime(2026, 10, 17, 18, 0, tzinfo=TZ)
+
+
+class CifrasHTML(HTMLParser):
+    """Lee las cifras visibles, sin confundirlas con datos de los desplegables."""
+    def __init__(self, markup):
+        super().__init__()
+        self.cifras, self.actual = {}, None
+        self.feed(markup)
+
+    def handle_starttag(self, tag, attrs):
+        atributos = dict(attrs)
+        if tag == 'article' and atributos.get('data-cifra'):
+            self.actual = atributos['data-cifra']
+            self.cifras[self.actual] = {'texto': [], 'fuentes': []}
+        if self.actual and tag == 'a':
+            self.cifras[self.actual]['fuentes'].append(atributos.get('href'))
+
+    def handle_data(self, data):
+        if self.actual and data.strip():
+            self.cifras[self.actual]['texto'].append(data.strip())
+
+    def handle_endtag(self, tag):
+        if tag == 'article':
+            self.actual = None
 
 
 def localidad():
@@ -39,6 +64,121 @@ def aviso():
 
 
 class PortadaSemanticaTests(unittest.TestCase):
+    def test_lectura_automatica_verificada_no_hereda_umbrales_ni_rebaja_prioridad(self):
+        from test_hidrometria_local import parsear, REF as ref_automatica
+        automatica=parsear()
+        original=deepcopy(automatica)
+        decision={'prioridad':2,'motivos':['Campana: altura observada alcanza referencia INA de alerta.']}
+        resumen=construir_portada_zc(localidad(),decision,{'emision':ref_automatica},observado(),cap(),{},
+                    ref_automatica,observacion_automatica=automatica)
+        self.assertEqual(automatica,original)
+        self.assertEqual(resumen['prioridad'],2)
+        self.assertTrue(resumen['observacion_automatica']['vigente'])
+        self.assertEqual(resumen['rio']['serie'],40)
+        self.assertIsNone(resumen['rio']['altura'])
+        self.assertEqual(resumen['rio']['alerta'],2.)
+        self.assertFalse(resumen['rio']['comparacion_pronostico_umbral'])
+        salida=html_resumen_portada_zc(resumen)
+        cifra=CifrasHTML(salida).cifras['rio']
+        self.assertIn('1.12 m',cifra['texto'])
+        self.assertIn('Río observado · Paraná Las Palmas - Zárate',cifra['texto'])
+        self.assertIn('Lectura: 17/10 21:00 ART',cifra['texto'])
+        self.assertIn(automatica['fuente'],cifra['fuentes'])
+        self.assertNotIn('Por debajo de la referencia de alerta',salida)
+        self.assertIn('Campana',resumen['causas'][0])
+
+    def test_automatica_no_se_traslada_a_campana_ni_sobrevive_su_vigencia(self):
+        from test_hidrometria_local import parsear, REF as ref_automatica, ULTIMA
+        automatica=parsear()
+        row={**localidad(),'localidad':'Campana centro','partido':'Campana'}
+        puerto={**observado(),'nombre':'Campana','serie_id':41,
+                'fuente':'https://alerta.ina.gob.ar/a5/series/41'}
+        campana=construir_portada_zc(row,{'prioridad':1},{'emision':ref_automatica},puerto,cap(),{},
+                    ref_automatica,observacion_automatica=automatica)
+        self.assertIsNone(campana['observacion_automatica'])
+        self.assertIn('Sin dato actual',CifrasHTML(html_resumen_portada_zc(campana)).cifras['rio']['texto'])
+        tarde=construir_portada_zc(localidad(),{'prioridad':1},{'emision':ref_automatica},observado(),cap(),{},
+                    ULTIMA+timedelta(hours=6,seconds=1),observacion_automatica=automatica)
+        self.assertFalse(tarde['observacion_automatica']['vigente'])
+        self.assertEqual(tarde['observacion_automatica']['altura_m'],1.12)
+        cifra=CifrasHTML(html_resumen_portada_zc(tarde)).cifras['rio']['texto']
+        self.assertIn('Sin dato actual',cifra)
+        self.assertNotIn('1.12 m',cifra)
+        self.assertEqual(tarde['prioridad'],1)
+        for cambio in ({'serie':40},{'cero_ign_m':0.0},{'fuente':'https://ejemplo.org/observacion'}):
+            with self.subTest(cambio=cambio):
+                invalida=construir_portada_zc(localidad(),{'prioridad':1},{'emision':ref_automatica},observado(),cap(),{},
+                        ref_automatica,observacion_automatica={**automatica,**cambio})
+                self.assertFalse(invalida['observacion_automatica']['vigente'])
+                self.assertNotIn('1.12 m',CifrasHTML(html_resumen_portada_zc(invalida)).cifras['rio']['texto'])
+
+    def test_cifras_visibles_conservan_cero_fecha_y_fuente_sin_abrir_detalles(self):
+        row={**localidad(),'referencia_datos':(REF-timedelta(hours=2)).isoformat()}
+        resumen=construir_portada_zc(row,{'prioridad':1},{'emision':REF},observado(),cap(),{},REF)
+        cifras=CifrasHTML(html_resumen_portada_zc(resumen)).cifras
+        self.assertEqual(set(cifras),{'lluvia24','lluvia72','rio'})
+        self.assertIn('0.0 mm',cifras['lluvia24']['texto'])
+        self.assertIn('Desde 17/10 16:00 ART',cifras['lluvia24']['texto'])
+        self.assertIn(resumen['lluvia']['fuente'],cifras['lluvia24']['fuentes'])
+        self.assertIn('1.55 m',cifras['rio']['texto'])
+        self.assertIn('Lectura: 17/10 17:00 ART',cifras['rio']['texto'])
+        self.assertIn(observado()['fuente'],cifras['rio']['fuentes'])
+        vencido=construir_portada_zc(row,{'prioridad':1},{'emision':REF},observado(),cap(),{},REF+timedelta(hours=13))
+        viejas=CifrasHTML(html_resumen_portada_zc(vencido)).cifras
+        for clave in cifras:
+            self.assertIn('Sin dato actual',viejas[clave]['texto'])
+        self.assertIn('Último registro disponible: 17/10 17:00 ART',viejas['rio']['texto'])
+        self.assertNotIn('1.55 m',viejas['rio']['texto'])
+
+    def test_causas_agrupan_solo_hechos_y_periodos_identicos(self):
+        senal={'prioridad':1,'mecanismo':'Tendencia del pronóstico fluvial',
+               'horizonte':'Corto · 0–72 h','id_horizonte':'corto','inicio':REF+timedelta(hours=1),
+               'fin':REF+timedelta(hours=60),'motivos':['Ascenso previsto de 0.20 m en la propia serie. No demuestra desborde.'],
+               'nivel':'VIGILANCIA FLUVIAL · ASCENSO EN EL TRAMO PREVISTO'}
+        alertas=[{**senal,'localidad':lugar+' · estación de referencia'} for lugar in ('Zárate','Campana')]
+        motivos=['Modelo local · '+a['localidad']+' · '+a['horizonte']+': '+a['motivos'][0] for a in alertas]
+        decision={'prioridad':1,'motivos':motivos}
+        modelo={'emision':REF,'alertas':alertas}
+        anterior=deepcopy(modelo)
+        resumen=construir_portada_zc(localidad(),decision,modelo,observado(),cap(),{},REF)
+        self.assertEqual(modelo,anterior)
+        self.assertEqual(resumen['prioridad'],1)
+        self.assertEqual(len(resumen['causas']),1)
+        self.assertTrue(all(lugar in resumen['causas'][0] for lugar in ('Zárate','Campana')))
+        self.assertIn('0.20 m',resumen['causas'][0])
+        self.assertIn('No demuestra desborde',resumen['causas'][0])
+        for cambio in ({'fin':REF+timedelta(hours=61)}, {'motivos':['Ascenso previsto de 0.40 m. No demuestra desborde.']}):
+            with self.subTest(cambio=cambio):
+                distintas=[alertas[0],{**alertas[1],**cambio}]
+                nuevos=['Modelo local · '+a['localidad']+' · '+a['horizonte']+': '+a['motivos'][0] for a in distintas]
+                resultado=construir_portada_zc(localidad(),{**decision,'motivos':nuevos},{**modelo,'alertas':distintas},observado(),cap(),{},REF)
+                self.assertEqual(len(resultado['causas']),2)
+
+    def test_cruce_actual_duplicado_conserva_localidad_sin_doble_causa(self):
+        cruce='Campana: altura observada alcanza referencia INA de evacuación; no es una orden de evacuación.'
+        modelo={'emision':REF,'alertas':[{'localidad':'Zárate–Campana','prioridad':2,
+            'mecanismo':'Evidencia actual de río / parte local','motivos':[cruce],'horizonte':'Corto · 0–72 h'}]}
+        decision={'prioridad':2,'motivos':['Prevención local: SMN: aviso local de tormentas.',
+                  'Prevención local: '+cruce,'Modelo local · Zárate–Campana · Corto · 0–72 h: '+cruce]}
+        resumen=construir_portada_zc(localidad(),decision,modelo,observado(),cap(),{},REF)
+        self.assertEqual(resumen['prioridad'],2)
+        self.assertEqual(sum(cruce in c for c in resumen['causas']),1)
+        self.assertIn('Campana',resumen['causas'][0])
+        self.assertTrue(any('SMN:' in c for c in resumen['causas']))
+        salida=html_resumen_portada_zc(resumen)
+        self.assertEqual(salida.count(cruce),1)
+        self.assertNotIn('<details',salida)
+        sin_repeticion_preventiva=construir_portada_zc(localidad(),{'prioridad':2},modelo,observado(),cap(),{},REF)
+        self.assertIn(cruce,sin_repeticion_preventiva['causas'][0])
+
+    def test_resumen_escapa_nombres_y_causas_externas(self):
+        resumen=construir_portada_zc({**localidad(),'localidad':'<img src=x onerror=alert(1)>'},
+                 {'prioridad':1,'motivos':['<script>alert(1)</script>']},referencia=REF)
+        salida=html_resumen_portada_zc(resumen)
+        self.assertNotIn('<script>',salida)
+        self.assertNotIn('<img ',salida)
+        self.assertIn('&lt;script&gt;',salida)
+
     def test_lluvia_cero_real_y_ausencia_no_se_confunden(self):
         completa=resumir_lluvia(localidad(),REF)
         self.assertEqual(completa['valores']['lluvia_futura_24'],0.)

@@ -4,12 +4,18 @@ import unittest
 from unittest.mock import patch
 
 from streamlit.testing.v1 import AppTest
+from test_portada_zc import CifrasHTML
 
 ROOT = Path(__file__).resolve().parents[1]
 PATHS = f"import sys\nsys.path.insert(0, {str(ROOT)!r})\nsys.path.insert(0, {str(ROOT/'tests')!r})\n"
 
 
 class PortadaStreamlitTests(unittest.TestCase):
+    def cifra_visible(self, at, clave):
+        resumenes=[m.value for m in at.markdown if '<section class="zc-portada"' in m.value]
+        self.assertEqual(len(resumenes),1)
+        return CifrasHTML(resumenes[0]).cifras[clave]['texto']
+
     def test_localidad_y_publico_actualizan_la_ficha_sin_perder_ausencias(self):
         codigo=PATHS+'''
 import streamlit as st
@@ -29,15 +35,62 @@ mostrar_portada_zc(st,resumen)
         with patch('requests.sessions.Session.request',side_effect=AssertionError('Red bloqueada')):
             at=AppTest.from_string(codigo).run()
             self.assertFalse(at.exception)
-            self.assertEqual(next(x.value for x in at.metric if x.label=='Altura observada vigente'),'1.55 m')
+            self.assertIn('1.55 m',self.cifra_visible(at,'rio'))
+            self.assertIn('0.0 mm',self.cifra_visible(at,'lluvia24'))
             at.selectbox[0].set_value('Campana').run()
             self.assertFalse(at.exception)
-            self.assertEqual(next(x.value for x in at.metric if x.label=='Altura observada vigente'),'1.20 m')
+            self.assertIn('1.20 m',self.cifra_visible(at,'rio'))
             at.radio[0].set_value('Productor / trabajo rural').run()
             self.assertFalse(at.exception)
+            self.assertTrue(any('Confirmá acceso y comunicación' in m.value for m in at.markdown))
             at.checkbox[0].check().run()
             self.assertFalse(at.exception)
-            self.assertEqual(next(x.value for x in at.metric if x.label=='Altura observada vigente'),'Sin dato actual')
+            self.assertIn('Sin dato actual',self.cifra_visible(at,'rio'))
+            self.assertNotIn('1.20 m',self.cifra_visible(at,'rio'))
+
+    def test_automatica_zarate_actual_se_separa_de_puertos_y_no_se_hereda(self):
+        codigo=PATHS+'''
+import streamlit as st
+from datetime import timedelta
+from test_portada_zc import localidad, observado, cap
+from test_hidrometria_local import parsear, REF, ULTIMA
+from portada_zc import construir_portada_zc, mostrar_portada_zc
+partido=st.selectbox('Referencia de prueba',['Zárate','Campana'])
+vencida=st.checkbox('Avanzar hasta después de seis horas')
+invalidar=st.checkbox('Simular fuente automática inválida')
+ref=ULTIMA+timedelta(hours=6,seconds=1) if vencida else REF
+row={**localidad(),'partido':partido,'localidad':partido+' centro'}
+rio={**observado(),'nombre':partido,'serie_id':40 if partido=='Zárate' else 41}
+automatica=parsear()
+if invalidar:
+    automatica['fuente']='https://ejemplo.org/lectura'
+resumen=construir_portada_zc(row,{'prioridad':2,'motivos':['Campana: altura observada alcanza referencia INA de alerta.']},
+    {'emision':ref},rio,cap(),{},ref,observacion_automatica=automatica)
+mostrar_portada_zc(st,resumen)
+st.session_state['prioridad_de_prueba']=resumen['prioridad']
+'''
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('Red bloqueada')), \
+                patch('urllib.request.OpenerDirector.open',side_effect=AssertionError('Red bloqueada')):
+            at=AppTest.from_string(codigo).run()
+            self.assertFalse(at.exception)
+            self.assertIn('1.12 m',self.cifra_visible(at,'rio'))
+            self.assertEqual(at.session_state['prioridad_de_prueba'],2)
+            self.assertTrue(any('Puerto de Zárate' in m.value for m in at.markdown))
+            self.assertTrue(any('2.00 m' in m.value for m in at.markdown))
+            at.selectbox[0].set_value('Campana').run()
+            self.assertFalse(at.exception)
+            self.assertIn('Sin dato actual',self.cifra_visible(at,'rio'))
+            self.assertNotIn('1.12 m',self.cifra_visible(at,'rio'))
+            at.selectbox[0].set_value('Zárate').run()
+            at.checkbox[0].check().run()
+            self.assertFalse(at.exception)
+            self.assertIn('Sin dato actual',self.cifra_visible(at,'rio'))
+            self.assertEqual(at.session_state['prioridad_de_prueba'],2)
+            at.checkbox[0].uncheck().run()
+            at.checkbox[1].check().run()
+            self.assertFalse(at.exception)
+            self.assertIn('Sin dato actual',self.cifra_visible(at,'rio'))
+            self.assertFalse(any('ejemplo.org' in str(b.proto.url) for b in at.get('link_button')))
 
     def test_alturas_en_dos_paneles_usan_la_misma_evidencia_y_no_la_lectura_archivada(self):
         codigo=PATHS+'''
@@ -45,7 +98,8 @@ import streamlit as st
 import plotly.express as px
 import pandas as pd
 from datetime import timedelta
-from test_evidencia_app_zc import cargar_app, REF
+from test_evidencia_app_zc import cargar_app
+from test_hidrometria_local import parsear, REF
 app=cargar_app()
 app.st=st
 app.px=px
@@ -61,18 +115,24 @@ pna={'fuente':'https://contenidosweb.prefecturanaval.gob.ar/alturas',
        'registros':{'Zárate':{'altura_m':1.1,'fecha_publicada':'14/OCT/26 - 0000',
          'tendencia_publicada':'Sin cambios','alerta_m':2.,'evacuacion_m':2.2}}}}
 datos=app.snapshot_alturas_locales_zc(observaciones,{'referencias':{}},pna,REF)
+automatica=parsear()
 def no_reconsultar():
     raise AssertionError('Los paneles deben reutilizar la consulta de Prefectura del snapshot')
 app.obtener_alturas_prefectura_zc=no_reconsultar
 with st.expander('Alturas de ambos puertos'):
-    app.mostrar_alturas_locales_zc(datos,key_prefix='ficha_')
-app.mostrar_alturas_locales_zc(datos,key_prefix='modelo_')
+    app.mostrar_alturas_locales_zc(datos,key_prefix='ficha_',observacion_automatica=automatica)
+app.mostrar_alturas_locales_zc(datos,key_prefix='modelo_',observacion_automatica=automatica)
 '''
         with patch('requests.sessions.Session.request',side_effect=AssertionError('Red bloqueada')):
             at=AppTest.from_string(codigo).run()
         self.assertFalse(at.exception)
         actuales=[x.value for x in at.metric if x.label=='INA · altura observada vigente']
         self.assertEqual(actuales,['1.55 m','1.20 m','1.55 m','1.20 m'])
+        automaticas=[x.value for x in at.metric if x.label=='RHN / INA · altura automática vigente']
+        self.assertEqual(automaticas,['1.12 m','1.12 m'])
+        fechas_automaticas=[c.value for c in at.caption if '17/10/2026 21:00 ART' in c.value]
+        self.assertEqual(len(fechas_automaticas),2)
+        self.assertEqual(fechas_automaticas[0],fechas_automaticas[1])
         archivo=[x.value for x in at.metric if x.label=='Lectura documental conservada']
         self.assertEqual(archivo,['1.10 m','1.10 m'])
 
