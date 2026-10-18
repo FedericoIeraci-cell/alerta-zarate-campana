@@ -106,6 +106,29 @@ class EvidenciaAppTests(unittest.TestCase):
         self.assertIn('referencia INA de evacuación',portada['causa'])
         self.assertTrue(any('SMN:' in causa for causa in portada['causas']))
 
+    def test_senales_reales_de_ambos_pronosticos_no_duplican_titulo_y_causa(self):
+        pronosticos={nombre:{'serie_id':serie,'emision':REF-timedelta(hours=1),'error':'',
+            'df':pd.DataFrame([{'fecha':REF+timedelta(hours=1),'main':1.0},
+                               {'fecha':REF+timedelta(hours=2),'main':1.2}]),
+            'url':f'https://alerta.ina.gob.ar/pronostico/{serie}'}
+            for nombre,serie in [('Zárate',29534),('Campana',3405)]}
+        rios=[observado(),{**observado(),'nombre':'Campana','serie_id':41,'altura_m':1.2}]
+        meteo={'nivel':'VERDE','completo':True,'vigente':True,'lecturas_validas':True}
+        with patch('requests.sessions.Session.request',side_effect=AssertionError('Red bloqueada')):
+            modelo=self.app.construir_modelo_predictivo_zc([],[],pronosticos,rios,cap(),{},
+                    referencia=REF,meteo_actual=meteo)
+            actual=self.app.evaluar_prevencion_inundaciones_zc(meteo,cap(),rios,{},referencia=REF)
+            decision=self.app.construir_decision_cuenca_zc(modelo,actual,{},REF)
+            portada=construir_portada_zc(localidad(),decision,modelo,rios[0],cap(),{},REF)
+        self.assertEqual(decision['prioridad'],1)
+        self.assertEqual(portada['prioridad'],decision['prioridad'])
+        self.assertEqual(len(modelo['alertas']),2)
+        self.assertEqual(len(portada['causas']),1)
+        self.assertTrue(all(lugar in portada['causas'][0] for lugar in ('Zárate','Campana')))
+        self.assertIn('+0.20 m',portada['causas'][0])
+        self.assertIn('No demuestra desborde',portada['causas'][0])
+        self.assertEqual(portada['motivos'],decision['motivos'])
+
 
 if __name__ == '__main__':
     unittest.main()

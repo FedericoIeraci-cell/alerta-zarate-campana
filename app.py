@@ -100,7 +100,7 @@ if __name__ == '__main__' and not ALA_MONITOR_HEADLESS:
         page_title="A.L.A. · Zárate–Campana",
         page_icon="🌧️",
         layout="wide",
-        initial_sidebar_state="expanded",
+        initial_sidebar_state="auto",
     )
 
 
@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.8.0"
+VERSION = "ZC 1.9.0"
 
 
 
@@ -5432,9 +5432,24 @@ def consultar_alturas_locales_zc():
     return snapshot_alturas_locales_zc(observaciones,refs,obtener_alturas_prefectura_zc())
 
 
-def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
+def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_',observacion_automatica=None):
     st.subheader('🌊 Altura del agua · Zárate y Campana')
-    st.caption('Alturas del río en metros sobre la escala de cada puerto. No representan profundidad de agua en una casa, calle o isla.')
+    st.caption('Cada medición corresponde a la escala de su estación. No representa profundidad de agua en una casa, calle o isla.')
+    if isinstance(observacion_automatica,dict):
+        from hidrometria_local import revalidar_altura_zarate
+        automatica=revalidar_altura_zarate(observacion_automatica,ahora())
+        st.markdown('### Estación automática · Paraná Las Palmas - Zárate')
+        st.metric('RHN / INA · altura automática vigente',
+                  f"{automatica['altura_m']:.2f} m" if automatica.get('vigente') else 'Sin dato actual')
+        fecha_auto=_ui_fecha_local(automatica.get('fecha_observada'))
+        if fecha_auto is not None and automatica.get('altura_m') is not None:
+            st.caption(f"Última lectura: {automatica['altura_m']:.2f} m · {fecha_auto:%d/%m/%Y %H:%M} ART. "
+                       + ('Dentro del plazo de uso de seis horas.' if automatica.get('vigente') else 'Lectura anterior; no confirma la altura actual.'))
+        elif automatica.get('error'):
+            st.caption(automatica['error'])
+        st.caption('Referencia automática compartida por ambas páginas. Es distinta de la escala del puerto de Zárate; no se le trasladan sus niveles de alerta. Las escalas de los puertos se muestran debajo.')
+        if automatica.get('fuente'):
+            st.link_button('INA · fuente de la estación automática',automatica['fuente'],key=key_prefix+'automatica_fuente')
     if st.button('Actualizar alturas de Zárate y Campana',key=key_prefix+'actualizar'):
         _zc_hidro_obtener_observaciones.clear();consultar_referencias_ina_zc.clear();obtener_alturas_prefectura_zc.clear()
         _zc_hidro_invalidar_observaciones_guardadas()
@@ -5450,7 +5465,7 @@ def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
     st.caption('Alerta local y Modelo de inundaciones usan la misma consulta INA. Los antecedentes de Prefectura se consultan por separado debajo de cada estación.')
     for col,(nombre,config) in zip(st.columns(2),_zc_hidro_estaciones.items()):
         with col:
-            st.markdown('### '+nombre)
+            st.markdown('### Puerto · '+nombre)
             resultado=datos.get('observaciones',{}).get(nombre,{})
             resumen=_resumen_rio_prevencion_zc(nombre,config,resultado,refs)
             tiene=np.isfinite(resumen['altura_m']) and not resumen.get('error')
@@ -6947,7 +6962,8 @@ def mostrar_prevencion_inundaciones_zc(df):
     st.session_state['zc_cuenca_decision']=decision
     st.session_state['zc_modelo_predictivo_resultado']=modelo
     mostrar_modelo_predictivo_zc(modelo)
-    mostrar_alturas_locales_zc(st.session_state['zc_alturas_locales_resultado'],key_prefix='zc_alturas_modelo_')
+    mostrar_alturas_locales_zc(st.session_state['zc_alturas_locales_resultado'],key_prefix='zc_alturas_modelo_',
+                               observacion_automatica=st.session_state.get('zc_observacion_automatica'))
     st.subheader('Vigilancia actual y preparación ante inundaciones')
     st.session_state['zc_prevencion_resultado']=evaluacion
     nivel=evaluacion['nivel_preventivo']
@@ -6976,7 +6992,7 @@ def mostrar_prevencion_inundaciones_zc(df):
                   'Dato':f"{cap.get('leidos',0)} de {cap.get('total',0)} documentos leídos; el aviso oficial conserva su área y horario"})
     for r in rios:
         dato=f"Último registro recibido: {r['altura_m']:.2f} m" if np.isfinite(r['altura_m']) else 'Sin altura verificada'
-        filas.append({'Factor':'Río · '+r['nombre'],'Estado':'Observación de hasta 6 h' if r['observacion_vigente'] else 'Altura actual sin confirmar',
+        filas.append({'Factor':'Puerto · '+r['nombre'],'Estado':'Observación de hasta 6 h' if r['observacion_vigente'] else 'Altura actual sin confirmar',
                       'Fecha':r['fecha'].strftime('%d/%m/%Y %H:%M ART') if r['fecha'] is not None else 'Sin fecha',
                       'Dato':dato+'; referencia de escala publicada '+('recuperada' if r['umbral_publicado'] else 'sin consulta vigente')})
         config=_zc_hidro_estaciones[r['nombre']]
@@ -8091,39 +8107,20 @@ def mostrar_resumen_meteorologico_zc(df):
 
 def cargar_red_integrada_zc():
     import red_integrada as red
-    if getattr(red,'VERSION_RED',None) != '2026-10-17.2':
+    if getattr(red,'VERSION_RED',None) != '2026-10-18.1':
         red=importlib.reload(red)
     return red
 
 
 def mostrar_conexion_portada_zc():
-    """Presentación breve del mismo informe y estado que utiliza Red integrada."""
-    red = cargar_red_integrada_zc()
-    resumen = red.resumen_publico_red(red.consultar_red_integrada())
-    enlace = '[Abrir ALA](https://alerta-litoral-agro.streamlit.app/)'
-    if resumen['estado'] == 'sin_confirmar':
-        st.warning('Conexión con ALA sin confirmar. Revisá la fecha de cada dato antes de usarlo. ' + enlace)
-        return
-    edad = resumen.get('edad_horas')
-    antiguedad = f" · hace {max(0, round(edad * 60))} min" if edad is not None else ''
-    st.caption('Red con ALA · informe común: ' + red.fecha_publica(resumen['generated_at']) +
-               antiguedad + f" · {resumen['nodos']} puntos · " + enlace)
-    if resumen['estado'] == 'antiguo':
-        st.warning('El informe compartido está vencido. Revisá su actualización en Red integrada.')
-    elif resumen['prueba']:
-        st.info('Informe de comprobación: no confirma por sí solo un control horario automático activo.')
-    elif not resumen['control_reciente']:
-        st.warning('Informe reciente; el control horario automático está por confirmar.')
+    """Mismo lector y explicación de datos/control en las dos páginas."""
+    return cargar_red_integrada_zc().mostrar_estado_conexion(st, app_actual='zc')
 
 
 def render_app():
     mostrar_hero_litoral()
     with st.sidebar:
         vigilar_actualizacion_meteorologica()
-    try:
-        mostrar_conexion_portada_zc()
-    except Exception:
-        st.caption('Conexión con la red regional por confirmar. Revisá el informe y su fecha en Red integrada.')
     firma_actual=firma_cobertura()
     if st.session_state.get('firma_cobertura')!=firma_actual:
         for clave in ('df_alerta','raw_ecmwf','df_operativo','firma_historial_operativo','ficha_localidad','localidad_seleccionada'):
@@ -8327,6 +8324,13 @@ def render_app():
             localidad_seleccionada=seleccionar_localidad(st,app='zc',nodos=NODOS,opciones=localidades,
                 destacada=localidad_prioritaria(df_alerta),key='localidad_detalle')
         portada=st.container()
+        try:
+            red_comun=cargar_red_integrada_zc()
+            observacion_automatica=red_comun.altura_automatica_zarate_de_red(
+                red_comun.consultar_red_integrada(),referencia=ahora())
+        except Exception:
+            observacion_automatica=None
+        st.session_state['zc_observacion_automatica']=observacion_automatica
         with tab_modelo:
             try:
                 mostrar_prevencion_inundaciones_zc(df_alerta)
@@ -8367,12 +8371,17 @@ def render_app():
             resumen=construir_portada_zc(row_acciones,
                 decision=st.session_state.get('zc_cuenca_decision'),
                 modelo=st.session_state.get('zc_modelo_predictivo_resultado'),rio=rio,
-                cap=contexto.get('cap'),cuenca=st.session_state.get('zc_cuenca_resultado'),referencia=ahora())
+                cap=contexto.get('cap'),cuenca=st.session_state.get('zc_cuenca_resultado'),referencia=ahora(),
+                observacion_automatica=observacion_automatica)
             with portada:
                 mostrar_portada_zc(st,resumen)
         try:
-            with st.expander('Alturas de ambos puertos · fuentes, referencias y evolución'):
-                mostrar_alturas_locales_zc(alturas)
+            mostrar_conexion_portada_zc()
+        except Exception:
+            st.caption('Conexión con la red regional por confirmar. Revisá el informe y su fecha en Red integrada.')
+        try:
+            with st.expander('Estación automática y puertos · fuentes, referencias y evolución'):
+                mostrar_alturas_locales_zc(alturas,observacion_automatica=observacion_automatica)
         except Exception:
             st.subheader('🌊 Altura del agua · Zárate y Campana')
             st.warning('No se pudo completar la vista de alturas locales. Consultá las fuentes originales y volvé a actualizar.')

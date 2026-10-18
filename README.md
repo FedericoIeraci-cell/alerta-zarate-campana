@@ -1,10 +1,18 @@
-# Alerta Zárate–Campana · ZC 1.8.0
+# Alerta Zárate–Campana · ZC 1.9.0
 
 Herramienta experimental de apoyo a decisiones para Zárate, Campana y referencias del Delta. Integra lluvia modelada, suelo y escurrimiento, alertas SMN, radar SINARAME, alturas y pronósticos INA, Prefectura y contexto de la cuenca del Paraná.
 
 [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
 
-## Qué muestra primero la versión 1.8.0
+## Cambios de la versión 1.9.0
+
+El estado local y las cifras de lluvia y río aparecen antes de los detalles de conexión. Los motivos repetidos se agrupan sin ocultar las localidades afectadas ni las señales críticas. Cada cifra conserva su fecha, fuente y estado de vigencia junto al valor.
+
+Para Zárate se incorpora la medición de la estación automática **Paraná Las Palmas - Zárate**, serie INA **29437**, cuando el informe compartido y la observación están vigentes. Se mantiene separada de la escala del puerto (serie 40). Campana conserva su propia lectura (41); no se le asigna el dato de Zárate. Esta incorporación no rebaja el estado de preparación ni traslada referencias de alerta entre estaciones. Ver [evidencia hidrométrica](docs/HIDROMETRIA_ZARATE_20261018.md).
+
+El lector común distingue informe actualizado, control normal, control con datos parciales, comprobación, control antiguo y verificación fallida. Ambos sitios usan el mismo registro público del control de ALA.
+
+## Qué muestra primero la versión 1.9.0
 
 **Usar mi ubicación** permite elegir automáticamente una referencia cercana, con permiso del navegador. El cálculo queda en el navegador: la app recibe sólo el identificador de una referencia pública, una distancia aproximada y estados de la ayuda. El selector manual siempre está disponible y una elección manual posterior se respeta, aunque llegue tarde una respuesta de ubicación. Con un permiso ya concedido puede realizarse una consulta automática por sesión; no hay seguimiento continuo.
 
@@ -42,7 +50,7 @@ La solapa **Modelo de inundaciones** muestra variables atmosféricas por horizon
 
 Los horizontes atmosféricos son corto (0–72 h), mediano (días 4–7) y extendido (días 8–15). Se presenta únicamente la cobertura publicada, sin prolongar un pronóstico más corto. La perspectiva trimestral SMN describe tendencias del período; no determina una probabilidad local de inundación ni anticipa una tormenta puntual.
 
-Las observaciones locales INA corresponden a las series 40 (Zárate) y 41 (Campana). Los pronósticos locales corresponden a las series 29534 y 3405. No se confirmó documentalmente la equivalencia vertical entre observaciones y pronósticos, por lo que no se comparan sus valores con los umbrales de las series observadas ni con la cota del terreno.
+Las escalas de puerto conservan las observaciones INA 40 (Zárate) y 41 (Campana). La estación automática 29437 se agrega como referencia separada en la portada, las fichas de alturas y la red común. Los metadatos INA identifican a 29437 y al pronóstico 29534 en la misma estación 5907, unidad y cero; ese vínculo no equivale a validar un modelo de inundación. No se confirmó la equivalencia de los puertos 40/41 con los pronósticos 29534/3405; sus umbrales no se trasladan entre escalas ni a la cota del terreno. La lectura automática es información adicional y no modifica por sí sola el estado de preparación.
 
 Cuando falla la consulta actual, las referencias documentales guardadas se muestran con sus fechas originales y su condición de archivo. No acreditan alturas actuales ni generan alertas. Los umbrales de Prefectura e INA se mantienen identificados por fuente.
 
@@ -58,7 +66,7 @@ La conexión común comparte información con ALA. **Telegram de Zárate–Campa
 
 ## Archivos y ejecución
 
-La aplicación publicada usa `app.py`, `red_integrada.py`, `portada_zc.py`, `ubicacion_local.py` y `requirements.txt` en la raíz. Al actualizarla, subí también la carpeta completa `ubicacion_local_frontend/`, incluidos su catálogo, HTML, JavaScript y CSS locales. Conservá los demás módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
+La aplicación publicada usa `app.py`, `red_integrada.py`, `hidrometria_local.py`, `portada_zc.py`, `ubicacion_local.py` y `requirements.txt` en la raíz. Al actualizarla, subí también la carpeta completa `ubicacion_local_frontend/`, incluidos su catálogo, HTML, JavaScript y CSS locales. Conservá los demás módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
 
 `.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio. Tiene permisos de lectura y no recibe credenciales de Telegram. El archivo `workflows/zc-monitor.yml` conserva su ubicación previa fuera de `.github/workflows`; esta versión no activa un monitor local ni envíos.
 

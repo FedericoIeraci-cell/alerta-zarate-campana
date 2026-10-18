@@ -141,7 +141,7 @@ def resumir_rio(partido, rio, previsiones, referencia):
             "emision_pronostico": emision, "fin_pronostico": fin, "fuente_pronostico": fuente_prono,
             "comparacion_pronostico_umbral": False,
             "faltante": "" if altura is not None and alerta is not None else
-                f"{partido}: altura actual o referencia de la misma escala por confirmar."}
+                f"Puerto de {partido} (INA {serie}): altura actual o referencia de la misma escala por confirmar."}
 
 
 def resumir_represa(cuenca, referencia):
@@ -206,7 +206,89 @@ def resumir_smn(row, cap, referencia):
             "faltante": "" if completo else "SMN: la lectura parcial o antigua no confirma ausencia de avisos."}
 
 
-def construir_portada_zc(row, decision=None, modelo=None, rio=None, cap=None, cuenca=None, referencia=None):
+def _causas_publicas(motivos, senales):
+    """Una explicación por evidencia; conserva todos los disparadores críticos.
+
+    El título técnico de una señal no constituye otra causa. Sólo se agrupan
+    señales cuyos motivos, mecanismo y fechas publicadas son idénticos.
+    """
+    def sin_prefijo(texto):
+        return re.sub(r"^Prevención local:\s*", "", _texto(texto))
+
+    actuales_modelo = [_texto(m) for a in senales if a.get('mecanismo') == 'Evidencia actual de río / parte local'
+                       for m in (a.get('motivos') or []) if _texto(m)]
+    criticos = [m for m in motivos + actuales_modelo if any(t in _normal(m) for t in
+                ("altura observada alcanza", "agua reportada", "acceso reportado cerrado", "nivel experimental rojo"))]
+    salida = []
+    cubiertos = set()
+    for causa in criticos:
+        original = sin_prefijo(causa)
+        # El modelo puede repetir el mismo parte actual con otro encabezado.
+        if causa.startswith("Modelo local · ") and ": " in causa:
+            original = causa.split(": ", 1)[1]
+        clave = _normal(original)
+        if clave in cubiertos:
+            continue
+        cubiertos.add(clave)
+        etiqueta = ("Río observado" if "altura observada alcanza" in clave else
+                    "Parte local" if any(t in clave for t in ("agua reportada", "acceso reportado cerrado")) else
+                    "Meteorología modelada")
+        salida.append(etiqueta + " · " + original)
+
+    grupos = {}
+    motivos_modelo = set()
+    hay_smn_modelo = False
+    for senal in senales:
+        mecanismo = _texto(senal.get("mecanismo"))
+        hechos = tuple(_texto(m) for m in (senal.get("motivos") or []) if _texto(m))
+        localidad = _texto(senal.get("localidad")) or "Sector local"
+        horizonte = _texto(senal.get("horizonte") or senal.get("id_horizonte") or "plazo por confirmar")
+        for hecho in hechos:
+            motivos_modelo.add(_normal("Modelo local · " + localidad + " · " + horizonte + ": " + hecho))
+        if mecanismo == "Evidencia actual de río / parte local":
+            # Ya se muestran sus cruces y partes, con su localidad original.
+            continue
+        inicio, fin = _fecha(senal.get("inicio")), _fecha(senal.get("fin"))
+        clave = (mecanismo, hechos, inicio, fin, horizonte)
+        if clave not in grupos:
+            grupos[clave] = []
+        if localidad not in grupos[clave]:
+            grupos[clave].append(localidad)
+        hay_smn_modelo = hay_smn_modelo or mecanismo == "Aviso oficial SMN"
+    etiquetas = {"Tendencia del pronóstico fluvial": "Previsión del río",
+                 "Aviso oficial SMN": "Aviso oficial SMN",
+                 "Lluvia prevista": "Lluvia prevista por el modelo",
+                 "Lluvia + suelo/escurrimiento": "Lluvia, suelo y escurrimiento modelados",
+                 "Lluvia prevista + río actualmente alto": "Lluvia prevista y río observado alto"}
+    for (mecanismo, hechos, inicio, fin, horizonte), localidades in grupos.items():
+        etiqueta = etiquetas.get(mecanismo, "Previsión local")
+        lugar = ", ".join(localidades).replace(" · estación de referencia", "")
+        hecho = " ".join(hechos) or "La evaluación indica una señal preventiva; revisá su evidencia completa."
+        hecho = hecho.replace("Ascenso máximo desde el primer valor futuro de la misma serie:",
+                              "Subida prevista desde el primer dato del pronóstico:")
+        periodo = (" Período publicado: " + _hora(inicio) + " a " + _hora(fin) + "."
+                   if inicio is not None and fin is not None else " Plazo: " + horizonte + ".")
+        salida.append(etiqueta + " · " + lugar + ": " + hecho + periodo)
+    secundarios = []
+    for motivo in motivos:
+        if motivo in criticos or _normal(motivo) in motivos_modelo:
+            continue
+        original = sin_prefijo(motivo)
+        clave = _normal(original)
+        if clave in cubiertos or (hay_smn_modelo and "smn:" in clave):
+            continue
+        if not any(t in clave for t in ("smn:", "modelo local", "aguas altas", "tendencia ascendente")):
+            continue
+        cubiertos.add(clave)
+        if "aguas altas" in clave or "tendencia ascendente" in clave:
+            original = "Contexto de cuenca · " + original
+        secundarios.append(original)
+    salida.extend(secundarios[:2])
+    return list(dict.fromkeys(salida)) or [sin_prefijo(m) for m in motivos[:2]] or ["Faltan datos verificados para describir la situación regional."]
+
+
+def construir_portada_zc(row, decision=None, modelo=None, rio=None, cap=None, cuenca=None, referencia=None,
+                        observacion_automatica=None):
     """Reutiliza la prioridad regional y muestra la evidencia propia del punto elegido."""
     referencia = _fecha(referencia or datetime.now(timezone.utc))
     if referencia is None:
@@ -216,25 +298,19 @@ def construir_portada_zc(row, decision=None, modelo=None, rio=None, cap=None, cu
     modelo = modelo if isinstance(modelo, dict) else {}
     lluvia = resumir_lluvia(row, referencia)
     rio = resumir_rio(row.get("partido", ""), rio, modelo.get("rios") or [], referencia)
+    automatica = None
+    if row.get('partido') == 'Zárate' and isinstance(observacion_automatica,dict):
+        from hidrometria_local import revalidar_altura_zarate
+        automatica = revalidar_altura_zarate(observacion_automatica,referencia)
     represa = resumir_represa(cuenca, referencia)
     smn = resumir_smn(row, cap, referencia)
     prioridad = decision.get("prioridad")
     if type(prioridad).__name__ in ("bool", "bool_") or prioridad not in (0, 1, 2):
         prioridad = None
     motivos = [_texto(m) for m in (decision.get("motivos") or []) if _texto(m)]
-    relevantes = [m for m in motivos if any(t in _normal(m) for t in
-                  ("altura observada alcanza", "agua reportada", "acceso reportado cerrado", "smn:", "modelo local", "aguas altas", "tendencia ascendente"))]
-    # Conservar visibles todos los cruces y partes locales que exigen atención;
-    # un aviso de menor intensidad no debe ocultarlos por aparecer primero.
-    criticos = [m for m in motivos if any(t in _normal(m) for t in
-                ("altura observada alcanza", "agua reportada", "acceso reportado cerrado", "nivel experimental rojo"))]
     senales = [a for a in (modelo.get('alertas') or []) if isinstance(a,dict)
                and a.get('prioridad') == prioridad and prioridad in (1,2)]
-    causas_modelo = [_texto(a.get('localidad') or 'Sector local')+' · '+_texto(a.get('nivel'))+
-                     ' · '+_texto(a.get('horizonte') or 'Plazo por confirmar') for a in senales[:3]]
-    causas = list(dict.fromkeys(criticos + causas_modelo + [m for m in relevantes if m not in criticos][:2]))
-    if not causas:
-        causas = motivos[:2] or ["Faltan datos verificados para describir la situación regional."]
+    causas = _causas_publicas(motivos, senales)
     causa = causas[0]
     faltantes = [bloque["faltante"] for bloque in (lluvia, rio, represa, smn) if bloque["faltante"]]
     dudas = [_texto(x) for x in (decision.get("incertidumbres") or []) if _texto(x)]
@@ -245,8 +321,9 @@ def construir_portada_zc(row, decision=None, modelo=None, rio=None, cap=None, cu
             "prioridad": prioridad,
             "estado_regional": _texto(decision.get("nivel_preparacion")) or "VERIFICACIÓN PENDIENTE",
             "alcance_estado": "Zárate–Campana · preparación regional", "causa": causa, "causas": causas, "motivos": motivos,
-            "lluvia": lluvia, "rio": rio, "represa": represa, "smn": smn,
+            "lluvia": lluvia, "rio": rio, "observacion_automatica": automatica, "represa": represa, "smn": smn,
             "faltantes": list(dict.fromkeys(faltantes)), "incertidumbres": dudas,
+            "senales": senales,
             "orden_evacuacion": None, "llegada_crecida": None}
 
 
@@ -271,84 +348,162 @@ def acciones_portada_zc(prioridad, publico):
     return primeras[:4]
 
 
+def html_resumen_portada_zc(resumen):
+    """Primera lectura responsiva: causas, cifras fechadas y una acción concreta."""
+    def esc(valor):
+        return html.escape(str(valor), quote=True)
+    def enlace(titulo, url):
+        return '<a href="'+esc(url)+'" target="_blank" rel="noopener noreferrer">'+esc(titulo)+'</a>'
+    ref = resumen["referencia"]
+    lluvia, rio, represa, smn = (resumen[k] for k in ("lluvia", "rio", "represa", "smn"))
+    automatica = resumen.get('observacion_automatica') or {}
+    etiquetas = {2: "Atención preventiva alta", 1: "Preparar medidas", 0: "Mantener seguimiento", None: "Información por confirmar"}
+    colores = {2: "#a34113", 1: "#8b6209", 0: "#175b83", None: "#536576"}
+    acciones = {2: "Confirmá ahora con Defensa Civil los sectores afectados, los accesos y la asistencia necesaria.",
+                1: "Revisá los avisos y prepará comunicación y accesos antes de salir o trabajar.",
+                0: "Seguí las nuevas lecturas y los avisos; verificá las condiciones antes de circular.",
+                None: "Confirmá las fuentes que faltan antes de decidir una salida o una tarea."}
+    causas = '<ul class="zc-portada-causas">'+''.join('<li>'+esc(c)+'</li>' for c in resumen['causas'])+'</ul>'
+    cifras = []
+    for campo, titulo, clave in (("lluvia_futura_24", "Lluvia prevista · 24 h", "lluvia24"),
+                                ("lluvia_futura_72", "Lluvia prevista · 72 h", "lluvia72")):
+        fecha = ("Desde " if lluvia['vigente'] else "Referencia sin vigencia: ")+_hora(lluvia['referencia'])
+        cifras.append('<article class="zc-portada-cifra" data-cifra="'+clave+'"><h3>'+esc(titulo)+'</h3>'
+                      '<p class="zc-portada-valor">'+esc(_valor(lluvia['valores'][campo],1,' mm'))+'</p>'
+                      '<p class="zc-portada-fecha">'+esc(fecha)+'</p><p class="zc-portada-fuente">'
+                      +enlace('ECMWF / Open-Meteo',lluvia['fuente'])+'</p></article>')
+    automatica_actual = automatica.get('vigente') is True and _numero(automatica.get('altura_m')) is not None
+    nombre_rio = automatica['nombre'] if automatica_actual else rio['estacion']
+    valor_rio = automatica['altura_m'] if automatica_actual else rio['altura']
+    fecha_rio = ("Lectura: " + _hora(_fecha(automatica.get('fecha_observada')))) if automatica_actual else (
+                ("Lectura: " if rio['vigente'] else "Último registro disponible: ")+_hora(rio['fecha']))
+    fuente_rio = automatica['fuente'] if automatica_actual else rio['fuente'] or 'https://alerta.ina.gob.ar/'
+    etiqueta_fuente = 'INA · RHN-SAT · serie 29437' if automatica_actual else 'INA · serie '+str(rio['serie'])
+    nota_rio = ('Medición automática RHN-SAT. No se compara con los umbrales del puerto INA 40 ni reduce la preparación regional.'
+                if automatica_actual else rio['estado']+'; es una escala del puerto, no profundidad en una calle o vivienda.')
+    cifras.append('<article class="zc-portada-cifra zc-portada-cifra-rio" data-cifra="rio"><h3>Río observado · '
+                  +esc(nombre_rio)+'</h3><p class="zc-portada-valor">'+esc(_valor(valor_rio,2,' m'))
+                  +'</p><p class="zc-portada-fecha">'+esc(fecha_rio)+'</p><p class="zc-portada-fuente">'
+                  +enlace(etiqueta_fuente,fuente_rio)+'</p></article>')
+    nota_lluvia = ("Lluvia de modelo, contada desde la referencia indicada; la emisión de la corrida no está informada."
+                   if lluvia['completo'] else lluvia['faltante'])
+    dia = represa['fecha_documento']
+    rep_fecha = dia.strftime('%d/%m/%Y')+' · sin hora publicada' if dia else 'Fecha sin confirmar'
+    rep_valor = (' Aporte previsto: '+_valor(represa['afluencia_prevista'],0,' m³/s')+'.'
+                 if represa['afluencia_prevista'] is not None else '')
+    smn_pendiente = '<p>'+esc(smn['faltante'])+'</p>' if smn['faltante'] else ''
+    color = colores[resumen['prioridad']]
+    return f'''<style>
+.zc-portada{{font-family:system-ui,sans-serif;color:#183448;background:#fff;border:1px solid #dce5ed;border-top:4px solid {color};border-radius:12px;padding:16px 18px;margin:2px 0 12px}}
+.zc-portada *{{box-sizing:border-box}}.zc-portada h2{{font-size:23px;line-height:1.2;margin:0 0 5px;padding:0;color:{color}}}.zc-portada h3{{font-size:14px;line-height:1.35;margin:0 0 5px;padding:0}}
+.zc-portada p,.zc-portada li{{font-size:14px;line-height:1.45;margin:4px 0;overflow-wrap:anywhere}}.zc-portada .zc-portada-meta,.zc-portada .zc-portada-fecha,.zc-portada .zc-portada-fuente,.zc-portada .zc-portada-nota{{font-size:12px;color:#506477}}
+.zc-portada-causas{{margin:9px 0 12px;padding-left:18px}}.zc-portada-causas li{{margin:4px 0}}.zc-portada-cifras{{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}}
+.zc-portada-cifra{{background:#f4f8fb;border:1px solid #dfe7ee;border-radius:9px;padding:11px 12px;min-width:0}}.zc-portada .zc-portada-valor{{font-size:28px;line-height:1.15;font-weight:800;margin:6px 0 8px;letter-spacing:-.02em}}
+.zc-portada a{{color:#075985;text-decoration:underline}}.zc-portada-ahora{{border-left:3px solid {color};padding:3px 0 3px 10px;margin:12px 0}}.zc-portada-contexto{{display:grid;grid-template-columns:1fr 1fr;gap:12px;border-top:1px solid #dce5ed;padding-top:11px;margin-top:12px}}
+@media(max-width:620px){{.zc-portada{{padding:12px;border-radius:10px}}.zc-portada h2{{font-size:21px}}.zc-portada-cifras{{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}}.zc-portada-cifra{{padding:9px}}.zc-portada-cifra-rio{{grid-column:1/-1}}.zc-portada .zc-portada-valor{{font-size:25px}}.zc-portada-contexto{{grid-template-columns:1fr;gap:10px}}}}
+</style><section class="zc-portada" aria-label="Resumen de {esc(resumen['localidad'])}">
+<h2>{esc(etiquetas[resumen['prioridad']])}</h2><p class="zc-portada-meta"><strong>{esc(resumen['localidad'])}</strong> · {esc(resumen['alcance_estado'])} · evaluación: {esc(_hora(resumen['fecha_evaluacion'],ref))}</p>
+{causas}<div class="zc-portada-cifras">{''.join(cifras)}</div>
+<p class="zc-portada-nota">{esc(nota_lluvia)} Río: {esc(nota_rio)}</p>
+<div class="zc-portada-ahora"><p><strong>Qué hacer ahora:</strong> {esc(acciones[resumen['prioridad']])} No cruces agua.</p></div>
+<div class="zc-portada-contexto"><article><h3>Avisos oficiales SMN</h3><p>{esc(smn['estado'])}</p>{smn_pendiente}<p class="zc-portada-fecha">Listado: {esc(_hora(smn['fecha']))} · {enlace('SMN',smn['fuente'])}</p></article>
+<article><h3>Represas · contexto aguas arriba</h3><p>{esc(represa['estado']+rep_valor)}</p><p class="zc-portada-fecha">Parte: {esc(rep_fecha)} · {enlace('Yacyretá',represa['fuente'])}</p><p class="zc-portada-nota">No indica altura ni hora de llegada del agua a esta referencia.</p></article></div>
+<p class="zc-portada-nota">La preparación abarca los sectores mencionados. La lluvia baja no descarta una crecida y esta orientación no es una orden de evacuación.</p></section>'''
+
+
 def mostrar_portada_zc(st, resumen):
     ref = resumen["referencia"]
-    etiquetas = {2: "🟠 Atención preventiva alta", 1: "🟡 Preparar medidas", 0: "🔵 Mantener vigilancia", None: "⚪ Verificación pendiente"}
-    st.subheader(etiquetas[resumen["prioridad"]])
-    st.caption(resumen["alcance_estado"] + " · evaluación: " + _hora(resumen["fecha_evaluacion"], ref))
-    st.markdown('**Qué motiva esta preparación**\n\n' + '\n'.join('- '+causa for causa in resumen['causas']))
-    st.caption("La preparación abarca los sectores mencionados. Un color meteorológico bajo no descarta una crecida; revisá también el río y los avisos.")
-
-    lluvia, rio, represa, smn = (resumen[k] for k in ("lluvia", "rio", "represa", "smn"))
-    for bloques in (("lluvia", "rio"), ("represa", "smn")):
-        columnas = st.columns(2)
-        for columna, bloque in zip(columnas, bloques):
-            with columna:
-                with st.container(border=True):
-                    if bloque == "lluvia":
-                        st.markdown("#### 🌧️ Lluvia en " + resumen["localidad"])
-                        st.write(lluvia["estado"])
-                        st.metric("Próximas 24 horas", _valor(lluvia["valores"]["lluvia_futura_24"], 1, " mm"))
-                        st.write("**72 horas:** " + _valor(lluvia["valores"]["lluvia_futura_72"], 1, " mm") +
-                                 " · **7 días:** " + _valor(lluvia["valores"]["lluvia_futura_7d"], 1, " mm"))
-                        st.caption("Índice meteorológico: " + lluvia["nivel"] + " · " + _valor(lluvia["indice"], 1, "/100"))
-                        st.caption("Acumulados desde: " + _hora(lluvia['referencia']) + ". Las ventanas de 24 y 72 horas parten de esta referencia.")
-                        st.caption("Consulta: " + _hora(lluvia["consulta"], ref) + ". La API no informa la emisión de la corrida. Lluvia estimada por el modelo, no medición local.")
-                        st.link_button("Fuente meteorológica · Open-Meteo", lluvia["fuente"], key="zc_portada_lluvia")
-                    elif bloque == "rio":
-                        st.markdown("#### 🌊 Río en " + rio["estacion"])
-                        st.write(rio["estado"])
-                        st.metric("Altura observada vigente", _valor(rio["altura"], 2, " m"))
-                        st.caption("Registro: " + _hora(rio["fecha"], ref) + " · estación INA " + str(rio["serie"]))
-                        if rio["alerta"] is not None:
-                            st.write("Referencia de alerta: **" + _valor(rio["alerta"], 2, " m") + "** en la misma escala.")
-                        if rio["pronostico_vigente"]:
-                            st.caption("Pronóstico INA disponible hasta " + _hora(rio["fin_pronostico"]) +
-                                       ". No está confirmada su equivalencia con la escala observada; se revisa en Suelo y ríos.")
-                        else:
-                            st.caption("Pronóstico local del río: actualidad por confirmar.")
-                        st.caption("Altura de la escala del puerto; no es profundidad en una calle o vivienda.")
-                        st.link_button("Fuente del río · INA", rio["fuente"] or "https://alerta.ina.gob.ar/", key="zc_portada_rio")
-                    elif bloque == "represa":
-                        st.markdown("#### 🏞️ Represas aguas arriba")
-                        st.write(represa["estado"])
-                        dia = represa["fecha_documento"]
-                        st.caption("Fecha del parte: " + (dia.strftime("%d/%m/%Y") if dia else "Sin confirmar") + " · fecha documental, sin hora de medición.")
-                        if represa["afluencia_prevista"] is not None:
-                            st.metric("Afluencia prevista a Yacyretá", _valor(represa["afluencia_prevista"], 0, " m³/s"))
-                            st.caption("Día de la previsión: " + _texto(represa["fecha_afluencia"]) + ". No es descarga total ni altura local.")
-                        st.caption("Este contexto ayuda a seguir la cuenca. No permite calcular la hora de llegada de una crecida a tu zona.")
-                        st.link_button("Parte original · Yacyretá", represa["fuente"], key="zc_portada_represa")
-                    else:
-                        st.markdown("#### 🚨 Avisos oficiales SMN")
-                        st.write(smn["estado"])
-                        st.caption("Publicación del canal: " + _hora(smn["fecha"], ref))
-                        for i, aviso in enumerate(smn["avisos"][:2]):
-                            st.write("**" + aviso["estado"] + " · " + aviso["fenomeno"] + "**")
-                            st.caption(_hora(aviso["inicio"]) + " a " + _hora(aviso["fin"]))
-                            st.link_button("Abrir aviso oficial", aviso["fuente"], key="zc_portada_smn_"+str(i))
-                        st.caption("La coincidencia corresponde al punto o al partido mencionado; revisá el área exacta del aviso.")
-                        st.link_button("Todos los avisos · SMN", smn["fuente"], key="zc_portada_smn")
-    publico = st.radio("Ver acciones para", ["Mi hogar / mi comunidad", "Productor / trabajo rural"],
+    st.markdown(html_resumen_portada_zc(resumen), unsafe_allow_html=True)
+    publico = st.radio("Más acciones para", ["Mi hogar / mi comunidad", "Productor / trabajo rural"],
                        horizontal=True, key="zc_portada_publico")
-    with st.container(border=True):
-        st.markdown("**Qué hacer ahora**")
-        for accion in acciones_portada_zc(resumen["prioridad"], publico):
+    acciones = acciones_portada_zc(resumen["prioridad"], publico)
+    st.write("**Prepará:** " + acciones[0])
+    with st.expander("Plan de preparación y contactos oficiales"):
+        for accion in acciones[1:]:
             st.write("• " + accion)
         st.caption("Si hay agua creciente o peligro: no cruces agua y pedí asistencia. Seguí las indicaciones de la autoridad local para resguardo o evacuación.")
-    if resumen["faltantes"]:
-        st.markdown("**Qué falta confirmar para decidir**")
-        for falta in resumen["faltantes"]:
-            st.write("• " + falta)
-    st.caption("Una preparación preventiva no es una orden de evacuación. La app no confirma refugios ni recorridos habilitados; consultalos con la autoridad local.")
-    with st.expander("Ver evidencia y fuentes de las recomendaciones"):
-        st.write("**Estado original de la evaluación:** " + resumen["estado_regional"])
-        for motivo in resumen["motivos"]:
-            st.write("• " + motivo)
+        st.caption("La app no confirma refugios ni recorridos habilitados; consultalos con la autoridad local.")
         for etiqueta, url in FUENTES_ACCIONES:
             st.link_button(etiqueta, url)
         st.link_button("Zárate · contactos municipales", "https://zarate.gob.ar/telefonos-utiles/")
         st.link_button("Campana · contactos municipales", "https://www.campana.gob.ar/telefonos-utiles/")
+
+    lluvia, rio, represa, smn = (resumen[k] for k in ("lluvia", "rio", "represa", "smn"))
+    with st.expander("Lluvia · períodos, cálculo y fuente"):
+        st.write(lluvia["estado"])
+        st.write("**Próximos 7 días:** " + _valor(lluvia["valores"]["lluvia_futura_7d"], 1, " mm"))
+        st.write("**Índice meteorológico:** " + lluvia["nivel"] + " · " + _valor(lluvia["indice"], 1, "/100"))
+        st.caption("Acumulados desde: " + _hora(lluvia['referencia']) + ". Las ventanas de 24 y 72 horas parten de esta referencia.")
+        st.caption("Cálculo meteorológico: " + _hora(lluvia['fecha'],ref) + ". Consulta: " + _hora(lluvia["consulta"], ref) + ". La API no informa la emisión de la corrida. Lluvia estimada por el modelo, no medición local.")
+        st.link_button("Fuente meteorológica · Open-Meteo", lluvia["fuente"], key="zc_portada_lluvia")
+    with st.expander("Río · umbrales, pronóstico y fuente"):
+        automatica = resumen.get('observacion_automatica') or {}
+        if automatica and _numero(automatica.get('altura_m')) is not None and _fecha(automatica.get('fecha_observada')) is not None:
+            st.write('**Estación automática: '+_texto(automatica.get('nombre'))+' · serie 29437**')
+            etiqueta = 'Lectura vigente' if automatica.get('vigente') is True else 'Antecedente sin vigencia confirmada'
+            st.write(etiqueta+': '+_valor(automatica.get('altura_m'),2,' m')+' · '+_hora(_fecha(automatica.get('fecha_observada'))))
+            if automatica.get('coincidencia_documental_pronostico') is True:
+                st.caption('La serie automática 29437 y el pronóstico 29534 comparten estación, unidad y cero publicados por INA. Esto no vincula los umbrales del puerto INA 40 a esa escala ni confirma una inundación.')
+            else:
+                st.caption('La vinculación documental de esta lectura con la serie de pronóstico requiere confirmación.')
+            st.caption('La lectura automática no modifica la prioridad regional ni se usa para dar por seguros accesos o viviendas.')
+            if automatica.get('fuente'):
+                st.link_button('Fuente automática · INA 29437',automatica['fuente'],key='zc_portada_rio_automatico')
+        elif automatica:
+            st.caption('Estación automática RHN-SAT de Zárate: no se dispone de una lectura verificada.')
+        st.write('**Puerto de '+rio['estacion']+' · serie observada INA '+str(rio['serie'])+'**')
+        st.write(rio["estado"])
+        st.write('Altura vigente del puerto: '+_valor(rio['altura'],2,' m'))
+        st.caption("Registro: " + _hora(rio["fecha"], ref) + " · serie observada INA " + str(rio["serie"]))
+        for campo, titulo in (("alerta", "alerta"), ("evacuacion", "evacuación")):
+            st.write("Referencia de " + titulo + ": **" + _valor(rio[campo], 2, " m") + "** en la misma escala observada.")
+        if rio["pronostico_vigente"]:
+            st.caption("Pronóstico INA emitido " + _hora(rio['emision_pronostico']) + " y disponible hasta " + _hora(rio["fin_pronostico"]) +
+                       ". Sus valores no se comparan con los umbrales de la escala observada del puerto; se revisa en Suelo y ríos.")
+        else:
+            st.caption("Pronóstico local del río: actualidad por confirmar.")
+        st.caption("Altura de la escala del puerto; no es profundidad en una calle o vivienda. Alcanzar una referencia de evacuación no equivale a una orden oficial.")
+        st.link_button("Fuente del río · INA", rio["fuente"] or "https://alerta.ina.gob.ar/", key="zc_portada_rio")
+    with st.expander("SMN · avisos, áreas y fechas"):
+        st.write(smn["estado"])
+        if smn['faltante']:
+            st.write(smn['faltante'])
+        st.caption("Publicación del canal: " + _hora(smn["fecha"], ref))
+        for i, aviso in enumerate(smn["avisos"]):
+            st.write("**" + aviso["estado"] + " · " + aviso["fenomeno"] + "**")
+            st.caption(_hora(aviso["inicio"]) + " a " + _hora(aviso["fin"]) + ". Emisión: " + _hora(aviso['emision']))
+            st.link_button("Abrir aviso oficial", aviso["fuente"], key="zc_portada_smn_"+str(i))
+        st.caption("La coincidencia corresponde al punto o al partido mencionado; revisá el área exacta del aviso.")
+        st.link_button("Todos los avisos · SMN", smn["fuente"], key="zc_portada_smn")
+    with st.expander("Represas · parte original y alcance"):
+        st.write(represa["estado"])
+        dia = represa["fecha_documento"]
+        st.caption("Fecha del parte: " + (dia.strftime("%d/%m/%Y") if dia else "Sin confirmar") + " · fecha documental, sin hora de medición.")
+        if represa["afluencia_prevista"] is not None:
+            st.write("**Aporte previsto a Yacyretá:** " + _valor(represa["afluencia_prevista"], 0, " m³/s"))
+            st.caption("Día de la previsión: " + _texto(represa["fecha_afluencia"]) + ". No es descarga total ni altura local.")
+        st.caption("Este contexto ayuda a seguir la cuenca. No permite calcular la hora de llegada de una crecida a tu zona.")
+        st.link_button("Parte original · Yacyretá", represa["fuente"], key="zc_portada_represa")
+    if resumen["faltantes"]:
+        with st.expander("Información que falta confirmar · " + str(len(resumen['faltantes'])) + " puntos"):
+            for falta in resumen["faltantes"]:
+                st.write("• " + falta)
+            for duda in resumen['incertidumbres']:
+                st.write("• " + duda)
+    with st.expander("Evaluación completa · causas y límites"):
+        st.write("**Estado original de la evaluación:** " + resumen["estado_regional"])
+        for motivo in resumen["motivos"]:
+            st.write("• " + motivo)
+        for senal in resumen.get('senales',[]):
+            st.write("**" + _texto(senal.get('localidad')) + " · " + _texto(senal.get('nivel')) + "**")
+            st.caption("Ventana publicada: " + _hora(_fecha(senal.get('inicio'))) + " a " + _hora(_fecha(senal.get('fin'))) + ". No indica una hora de inundación.")
+            for limite in senal.get('incertidumbres') or []:
+                st.write("• " + _texto(limite))
+            for fuente in senal.get('fuentes') or []:
+                enlace = _url(fuente, {'alerta.ina.gob.ar','alerta.ina.gov.ar','www.ina.gob.ar','www.ina.gov.ar',
+                                      'api.open-meteo.com','open-meteo.com','ssl.smn.gob.ar','smn.gob.ar','www.smn.gob.ar'})
+                if enlace:
+                    st.markdown('[Fuente original de la señal]('+enlace+')')
 
 
 def hover_meteorologico_zc(row, referencia=None):
