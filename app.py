@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.7.1"
+VERSION = "ZC 1.8.0"
 
 
 
@@ -8323,12 +8323,9 @@ def render_app():
         localidades=sorted(df_alerta.localidad.tolist())
         localidad_seleccionada=None
         if localidades:
-            if st.session_state.get('localidad_detalle') not in localidades:
-                st.session_state.pop('localidad_detalle',None)
-            destacada=localidad_prioritaria(df_alerta)
-            localidad_seleccionada=st.selectbox('Seleccionar localidad',localidades,
-                index=localidades.index(destacada) if destacada in localidades else 0,key='localidad_detalle',
-                help='Elegí el punto más cercano. Son referencias del modelo; no certifican el estado de cada calle, isla o parcela.')
+            from ubicacion_local import seleccionar_localidad
+            localidad_seleccionada=seleccionar_localidad(st,app='zc',nodos=NODOS,opciones=localidades,
+                destacada=localidad_prioritaria(df_alerta),key='localidad_detalle')
         portada=st.container()
         with tab_modelo:
             try:

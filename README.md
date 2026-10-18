@@ -1,10 +1,14 @@
-# Alerta Zárate–Campana · ZC 1.7.1
+# Alerta Zárate–Campana · ZC 1.8.0
 
 Herramienta experimental de apoyo a decisiones para Zárate, Campana y referencias del Delta. Integra lluvia modelada, suelo y escurrimiento, alertas SMN, radar SINARAME, alturas y pronósticos INA, Prefectura y contexto de la cuenca del Paraná.
 
 [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
 
-## Qué muestra primero la versión 1.7.1
+## Qué muestra primero la versión 1.8.0
+
+**Usar mi ubicación** permite elegir automáticamente una referencia cercana, con permiso del navegador. El cálculo queda en el navegador: la app recibe sólo el identificador de una referencia pública, una distancia aproximada y estados de la ayuda. El selector manual siempre está disponible y una elección manual posterior se respeta, aunque llegue tarde una respuesta de ubicación. Con un permiso ya concedido puede realizarse una consulta automática por sesión; no hay seguimiento continuo.
+
+La proximidad no confirma pertenencia a un partido ni cobertura exacta de una calle, isla o lote. Si la precisión no alcanza, la ubicación está demasiado alejada o falla el permiso, la selección se conserva. Cuando corresponde una referencia cercana de ALA, se ofrece un enlace voluntario con su identificador público. Ver [funcionamiento, privacidad y pruebas de ubicación](docs/GEOLOCALIZACION.md).
 
 Elegí la localidad al inicio. La portada muestra la preparación regional, las causas que la justifican, la fecha de evaluación y acciones para el hogar o el trabajo rural. Los bloques de lluvia, río, represas y SMN conservan sus fechas y las ausencias de información. Una causa de Campana sigue identificada como tal aunque se elija una referencia meteorológica de Zárate.
 
@@ -54,7 +58,7 @@ La conexión común comparte información con ALA. **Telegram de Zárate–Campa
 
 ## Archivos y ejecución
 
-La aplicación publicada usa `app.py`, `red_integrada.py`, `portada_zc.py` y `requirements.txt` en la raíz. Conservá también los módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
+La aplicación publicada usa `app.py`, `red_integrada.py`, `portada_zc.py`, `ubicacion_local.py` y `requirements.txt` en la raíz. Al actualizarla, subí también la carpeta completa `ubicacion_local_frontend/`, incluidos su catálogo, HTML, JavaScript y CSS locales. Conservá los demás módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
 
 `.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio. Tiene permisos de lectura y no recibe credenciales de Telegram. El archivo `workflows/zc-monitor.yml` conserva su ubicación previa fuera de `.github/workflows`; esta versión no activa un monitor local ni envíos.
 
