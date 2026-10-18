@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.7.0"
+VERSION = "ZC 1.7.1"
 
 
 
@@ -3663,35 +3663,35 @@ def mostrar_hero_litoral():
       <div class="ala-hero-fondo" style="{estilo_fondo}"></div>
       <div class="ala-hero-velo"></div>
       <div class="ala-hero-contenido">
-        <div class="ala-hero-kicker">PREVENCIÓN DE INUNDACIONES · ZÁRATE · CAMPANA · DELTA BONAERENSE</div>
-        <h1 class="ala-hero-titulo">A.L.A. · Zárate–Campana</h1>
-        <div class="ala-hero-marca" aria-hidden="true">
+        <div class="ala-hero-marca">
           <div class="ala-hero-logo-encuadre">
-            <img class="ala-hero-logo" src="{logo}" alt="" />
+            <img class="ala-hero-logo" src="{logo}" alt="" aria-hidden="true" />
           </div>
+          <div class="ala-hero-version">{html.escape(VERSION)}</div>
         </div>
-        <p class="ala-hero-descripcion">Lluvia, río y avisos oficiales para preparar tu hogar, tu comunidad y tu trabajo rural.</p>
-        <div class="ala-hero-datos">{''.join('<span>'+html.escape(p)+'</span>' for p in PARTIDOS)}<span>ECMWF IFS / Open-Meteo</span></div>
+        <div class="ala-hero-texto">
+          <h1 class="ala-hero-titulo">A.L.A. · Zárate–Campana</h1>
+          <p class="ala-hero-descripcion">Lluvia, río y avisos para cuidar tu hogar y tu trabajo rural.</p>
+          <div class="ala-hero-kicker">Herramienta experimental · Zárate, Campana y Delta bonaerense</div>
+        </div>
       </div>
-      <div class="ala-hero-version">{html.escape(VERSION)}</div>
     </div>
     <style>
       .ala-hero, .ala-hero *{{box-sizing:border-box}}
-      .ala-hero{{position:relative;overflow:hidden;border-radius:22px;margin:2px 0 16px;background:#081c2c;color:#fff;box-shadow:0 14px 38px rgba(4,22,37,.23);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}
+      [data-testid="stMainBlockContainer"]{{padding-top:3.5rem}}
+      .ala-hero{{position:relative;overflow:hidden;border-radius:16px;margin:0 0 4px;background:#081c2c;color:#fff;box-shadow:0 6px 20px rgba(4,22,37,.16);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}
       .ala-hero .ala-hero-fondo{{position:absolute;inset:0;background-position:center;background-size:cover;transform:scale(1.015)}}
-      .ala-hero .ala-hero-velo{{position:absolute;inset:0;background:linear-gradient(180deg,rgba(2,13,27,.56) 0%,rgba(4,24,40,.28) 45%,rgba(2,12,22,.72) 100%)}}
-      .ala-hero .ala-hero-contenido{{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;width:100%;padding:20px 32px 40px;max-width:960px;margin:0 auto}}
-      .ala-hero .ala-hero-kicker{{display:flex;align-items:center;justify-content:center;gap:8px;color:#a9edf0;font-size:11px;font-weight:800;letter-spacing:.10em;line-height:1.5;margin-bottom:10px}}
-      .ala-hero .ala-hero-kicker:before{{content:"";flex:0 0 26px;height:2px;background:#49d3d2;border-radius:2px}}
-      .ala-hero .ala-hero-titulo{{font-size:clamp(24px,3.5vw,36px);line-height:1.15;margin:0 0 12px;color:#fff;font-weight:800}}
-      .ala-hero .ala-hero-marca{{width:min(100%,260px);padding:6px 10px;margin:0 auto 12px;border-radius:12px;background:#f8fcff;border:1px solid rgba(255,255,255,.7);box-shadow:0 8px 26px rgba(0,0,0,.16)}}
-      .ala-hero .ala-hero-logo-encuadre{{position:relative;width:100%;aspect-ratio:2.7;overflow:hidden}}
+      .ala-hero .ala-hero-velo{{position:absolute;inset:0;background:linear-gradient(100deg,rgba(2,13,27,.82),rgba(4,24,40,.58))}}
+      .ala-hero .ala-hero-contenido{{position:relative;z-index:1;display:flex;align-items:center;gap:20px;min-height:132px;width:100%;padding:18px 24px}}
+      .ala-hero .ala-hero-texto{{min-width:0}}
+      .ala-hero .ala-hero-kicker{{color:#bcecf0;font-size:11px;line-height:1.4;margin-top:7px}}
+      .ala-hero .ala-hero-titulo{{font-size:clamp(23px,2.5vw,30px);line-height:1.15;margin:0 0 6px;padding:0;color:#fff;font-weight:800}}
+      .ala-hero .ala-hero-marca{{flex:0 0 116px;text-align:center}}
+      .ala-hero .ala-hero-logo-encuadre{{position:relative;width:100%;aspect-ratio:2.7;overflow:hidden;border-radius:8px;background:#f8fcff;border:1px solid rgba(255,255,255,.7)}}
       .ala-hero img.ala-hero-logo{{position:absolute;left:0;top:50%;width:100%;max-width:none;height:auto;display:block;transform:translateY(-50%);margin:0}}
-      .ala-hero p.ala-hero-descripcion{{max-width:690px;font-size:clamp(15px,1.6vw,18px);line-height:1.45;margin:0;color:#effbff;text-shadow:0 2px 12px rgba(0,0,0,.55)}}
-      .ala-hero .ala-hero-datos{{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px}}
-      .ala-hero .ala-hero-datos span{{font-size:12px;font-weight:700;line-height:1.3;color:#dffbff;border:1px solid rgba(182,245,246,.4);background:rgba(4,33,49,.52);padding:7px 11px;border-radius:999px;backdrop-filter:blur(4px)}}
-      .ala-hero .ala-hero-version{{position:absolute;right:18px;bottom:14px;z-index:2;font-size:11px;font-weight:800;color:#d9fbff;background:rgba(1,18,30,.68);border:1px solid rgba(184,244,244,.35);padding:6px 9px;border-radius:999px}}
-      @media(max-width:620px){{.ala-hero{{border-radius:16px}}.ala-hero .ala-hero-contenido{{padding:24px 18px 52px}}.ala-hero .ala-hero-kicker{{font-size:9px;letter-spacing:.08em;margin-bottom:14px}}.ala-hero .ala-hero-kicker:before{{flex-basis:18px}}.ala-hero .ala-hero-marca{{padding:10px 8px;margin-bottom:18px;border-radius:12px}}.ala-hero .ala-hero-datos{{margin-top:18px;gap:6px}}.ala-hero .ala-hero-datos span{{font-size:11px;padding:6px 9px}}}}
+      .ala-hero p.ala-hero-descripcion{{font-size:15px;line-height:1.4;margin:0;color:#effbff}}
+      .ala-hero .ala-hero-version{{font-size:10px;font-weight:700;color:#d9fbff;line-height:1.4;margin-top:7px}}
+      @media(max-width:620px){{.ala-hero .ala-hero-contenido{{min-height:128px;padding:16px;gap:12px}}.ala-hero .ala-hero-marca{{flex-basis:70px}}.ala-hero .ala-hero-titulo{{font-size:21px}}.ala-hero p.ala-hero-descripcion{{font-size:14px}}.ala-hero .ala-hero-kicker{{font-size:10px;margin-top:5px}}}}
     </style>
     '''
     # Altura natural, sin iframe fijo que recorte la cabecera en celulares.
@@ -8086,7 +8086,7 @@ def mostrar_resumen_meteorologico_zc(df):
                       'Índice meteorológico':r.get('nivel','SIN DATOS'),
                       'Cobertura':r.get('estado_datos','Sin confirmar')})
     st.dataframe(pd.DataFrame(filas),hide_index=True,use_container_width=True)
-    st.markdown('[Tiempo y variables actuales](#condiciones-meteorologicas-actuales) · [Suelo](#estado-del-suelo) · [Lluvia y escurrimiento](#precipitacion-y-runoff) · [Pronóstico diario](#pronostico-extendido-15-dias) · [Historial](#historial)')
+    st.markdown('[Tiempo y variables del modelo](#condiciones-meteorologicas-del-modelo) · [Suelo](#estado-del-suelo) · [Lluvia y escurrimiento](#precipitacion-y-runoff) · [Pronóstico diario](#pronostico-extendido-15-dias) · [Historial](#historial)')
 
 
 def cargar_red_integrada_zc():
@@ -8096,14 +8096,34 @@ def cargar_red_integrada_zc():
     return red
 
 
+def mostrar_conexion_portada_zc():
+    """Presentación breve del mismo informe y estado que utiliza Red integrada."""
+    red = cargar_red_integrada_zc()
+    resumen = red.resumen_publico_red(red.consultar_red_integrada())
+    enlace = '[Abrir ALA](https://alerta-litoral-agro.streamlit.app/)'
+    if resumen['estado'] == 'sin_confirmar':
+        st.warning('Conexión con ALA sin confirmar. Revisá la fecha de cada dato antes de usarlo. ' + enlace)
+        return
+    edad = resumen.get('edad_horas')
+    antiguedad = f" · hace {max(0, round(edad * 60))} min" if edad is not None else ''
+    st.caption('Red con ALA · informe común: ' + red.fecha_publica(resumen['generated_at']) +
+               antiguedad + f" · {resumen['nodos']} puntos · " + enlace)
+    if resumen['estado'] == 'antiguo':
+        st.warning('El informe compartido está vencido. Revisá su actualización en Red integrada.')
+    elif resumen['prueba']:
+        st.info('Informe de comprobación: no confirma por sí solo un control horario automático activo.')
+    elif not resumen['control_reciente']:
+        st.warning('Informe reciente; el control horario automático está por confirmar.')
+
+
 def render_app():
     mostrar_hero_litoral()
-    vigilar_actualizacion_meteorologica()
+    with st.sidebar:
+        vigilar_actualizacion_meteorologica()
     try:
-        cargar_red_integrada_zc().mostrar_estado_conexion(st,app_actual='zc')
+        mostrar_conexion_portada_zc()
     except Exception:
         st.caption('Conexión con la red regional por confirmar. Revisá el informe y su fecha en Red integrada.')
-    st.caption(f"Herramienta experimental · {VERSION} · Las alertas oficiales y sus horarios se consultan en SMN; la preparación local se explica a continuación.")
     firma_actual=firma_cobertura()
     if st.session_state.get('firma_cobertura')!=firma_actual:
         for clave in ('df_alerta','raw_ecmwf','df_operativo','firma_historial_operativo','ficha_localidad','localidad_seleccionada'):
@@ -8300,7 +8320,6 @@ def render_app():
 
 
         df_alerta = integrar_semaforo(df_alerta)
-        st.subheader('Tu lugar de referencia')
         localidades=sorted(df_alerta.localidad.tolist())
         localidad_seleccionada=None
         if localidades:
@@ -8308,8 +8327,8 @@ def render_app():
                 st.session_state.pop('localidad_detalle',None)
             destacada=localidad_prioritaria(df_alerta)
             localidad_seleccionada=st.selectbox('Seleccionar localidad',localidades,
-                index=localidades.index(destacada) if destacada in localidades else 0,key='localidad_detalle')
-        st.caption('Elegí el punto más cercano. Son referencias del modelo; no certifican el estado de cada calle, isla o parcela.')
+                index=localidades.index(destacada) if destacada in localidades else 0,key='localidad_detalle',
+                help='Elegí el punto más cercano. Son referencias del modelo; no certifican el estado de cada calle, isla o parcela.')
         portada=st.container()
         with tab_modelo:
             try:
@@ -8882,8 +8901,9 @@ def render_app():
         # ------------------------------------------------------------
 
         st.subheader(
-            "🌡️ Condiciones meteorológicas actuales"
+            "🌡️ Condiciones meteorológicas del modelo"
         )
+        st.caption('Último valor horario disponible de cada variable. Sin dato indica un valor ausente o no válido; cero es un valor recibido.')
 
         m1, m2, m3, m4, m5 = st.columns(5)
 
@@ -8961,13 +8981,13 @@ def render_app():
 
         with m12:
             st.metric(
-                "ET",
+                "ET horaria",
                 _ui_formato_metrica(row['evapotranspiracion'], 2, ' mm'),
             )
 
         with m13:
             st.metric(
-                "ET₀",
+                "ET₀ horaria",
                 _ui_formato_metrica(row['et0'], 2, ' mm'),
             )
 
@@ -8977,6 +8997,12 @@ def render_app():
                 row["descripcion_tiempo"],
             )
 
+        st.caption(
+            'ET: agua transferida a la atmósfera por evaporación y transpiración, estimada por el modelo. '
+            'ET₀: evapotranspiración de una superficie de referencia. Ambas corresponden al intervalo horario disponible. '
+            'VPD: déficit de presión de vapor; valores mayores indican aire más seco. '
+            'CAPE: energía potencial disponible para la convección, un indicador de inestabilidad atmosférica.'
+        )
 
         # ------------------------------------------------------------
         # Suelo
@@ -9157,50 +9183,16 @@ def render_app():
             "⛈️ Variables atmosféricas y convectivas"
         )
 
-        convectiva_df = pd.DataFrame({
-
-            "Variable": [
-                "CAPE actual",
-                "CAPE máximo próximo 24h",
-                "Prob. precipitación 24h",
-                "Prob. precipitación 72h",
-                "Viento máximo 24h",
-                "Ráfaga máxima 24h",
-                "Nubosidad total",
-                "Nubosidad baja",
-                "Nubosidad media",
-                "Nubosidad alta",
-            ],
-
-            "Valor": [
-                row["cape"],
-                row["cape_max_24"],
-                row["prob_lluvia_24"],
-                row["prob_lluvia_72"],
-                row["viento_max_24"],
-                row["rafaga_max_24"],
-                row["nubosidad"],
-                row["nubosidad_baja"],
-                row["nubosidad_media"],
-                row["nubosidad_alta"],
-            ],
-        })
-
-
-        fig_conv = px.bar(
-            convectiva_df,
-            x="Variable",
-            y="Valor",
-            title="Variables meteorológicas destacadas",
-        )
-
-        fig_conv.update_xaxes(
-            tickangle=-35
-        )
-
-        st.plotly_chart(
-            fig_conv,
+        st.dataframe(
+            tabla_variables_atmosfericas_zc(row),
             use_container_width=True,
+            hide_index=True,
+            height=390,
+        )
+        st.caption(
+            'CAPE describe energía disponible para la convección. La probabilidad de precipitación es la media '
+            'de los valores horarios del horizonte indicado; no es una probabilidad de inundación. '
+            'Cada variable conserva su unidad.'
         )
 
 
@@ -10718,11 +10710,32 @@ def _suma_ventana_meteorologica(horas, valores, referencia, cantidad, futura=Fal
 
 
 def _ui_formato_metrica(valor, decimales=1, sufijo=""):
+    if isinstance(valor, (bool, np.bool_)):
+        return "Sin dato"
     try:
         numero = float(valor)
     except (TypeError, ValueError, OverflowError):
         return "Sin dato"
     return f"{numero:.{decimales}f}{sufijo}" if np.isfinite(numero) else "Sin dato"
+
+
+def tabla_variables_atmosfericas_zc(row):
+    """Valores de presentación con unidades independientes; conserva los datos del modelo."""
+    campos = [
+        ('CAPE', 'Último valor disponible', 'cape', 0, 'J/kg'),
+        ('CAPE máximo', 'Próximas 24 h', 'cape_max_24', 0, 'J/kg'),
+        ('Probabilidad horaria de precipitación', 'Media de las próximas 24 h', 'prob_lluvia_24', 1, '%'),
+        ('Probabilidad horaria de precipitación', 'Media de las próximas 72 h', 'prob_lluvia_72', 1, '%'),
+        ('Viento máximo', 'Próximas 24 h', 'viento_max_24', 1, 'km/h'),
+        ('Ráfaga máxima', 'Próximas 24 h', 'rafaga_max_24', 1, 'km/h'),
+        ('Nubosidad total', 'Último valor disponible', 'nubosidad', 0, '%'),
+        ('Nubosidad baja', 'Último valor disponible', 'nubosidad_baja', 0, '%'),
+        ('Nubosidad media', 'Último valor disponible', 'nubosidad_media', 0, '%'),
+        ('Nubosidad alta', 'Último valor disponible', 'nubosidad_alta', 0, '%'),
+    ]
+    return pd.DataFrame([{'Variable':nombre, 'Período':periodo,
+                          'Valor':_ui_formato_metrica(row.get(campo), decimales), 'Unidad':unidad}
+                         for nombre, periodo, campo, decimales, unidad in campos])
 
 
 def _ui_direccion_viento(grados, texto):

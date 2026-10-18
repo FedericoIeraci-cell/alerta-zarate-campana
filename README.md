@@ -1,10 +1,10 @@
-# Alerta Zárate–Campana · ZC 1.7.0
+# Alerta Zárate–Campana · ZC 1.7.1
 
 Herramienta experimental de apoyo a decisiones para Zárate, Campana y referencias del Delta. Integra lluvia modelada, suelo y escurrimiento, alertas SMN, radar SINARAME, alturas y pronósticos INA, Prefectura y contexto de la cuenca del Paraná.
 
 [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
 
-## Qué muestra primero la versión 1.7.0
+## Qué muestra primero la versión 1.7.1
 
 Elegí la localidad al inicio. La portada muestra la preparación regional, las causas que la justifican, la fecha de evaluación y acciones para el hogar o el trabajo rural. Los bloques de lluvia, río, represas y SMN conservan sus fechas y las ausencias de información. Una causa de Campana sigue identificada como tal aunque se elija una referencia meteorológica de Zárate.
 
