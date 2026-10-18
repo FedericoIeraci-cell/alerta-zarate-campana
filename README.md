@@ -1,8 +1,18 @@
-# Alerta Zárate–Campana · ZC 1.6.0
+# Alerta Zárate–Campana · ZC 1.7.0
 
 Herramienta experimental de apoyo a decisiones para Zárate, Campana y referencias del Delta. Integra lluvia modelada, suelo y escurrimiento, alertas SMN, radar SINARAME, alturas y pronósticos INA, Prefectura y contexto de la cuenca del Paraná.
 
 [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
+
+## Qué muestra primero la versión 1.7.0
+
+Elegí la localidad al inicio. La portada muestra la preparación regional, las causas que la justifican, la fecha de evaluación y acciones para el hogar o el trabajo rural. Los bloques de lluvia, río, represas y SMN conservan sus fechas y las ausencias de información. Una causa de Campana sigue identificada como tal aunque se elija una referencia meteorológica de Zárate.
+
+La lluvia indica desde qué hora se cuentan las próximas 24 y 72 horas. La consulta y el cálculo no se anuncian como emisión de la corrida meteorológica. Una lectura local de río de más de seis horas pasa a ser antecedente y no se muestra en la métrica de altura actual. Alerta local y Modelo de inundaciones reutilizan la misma consulta INA y Prefectura.
+
+Las consultas incompletas de SMN no confirman ausencia de avisos. La perspectiva trimestral conserva su fecha de emisión y los meses cubiertos; que incluya octubre no acredita una edición de octubre ni un pronóstico para noviembre o diciembre.
+
+Ver [auditoría conjunta del 17/10/2026](docs/AUDITORIA_SAT_20261017.md).
 
 ## Red integrada Litoral–Zárate–Campana
 
@@ -14,7 +24,7 @@ El monitor existente de ALA prepara el informe común después de guardar su eva
 
 Un informe con más de 3 horas se señala como vencido. Las alturas y corridas locales de Zárate–Campana también se revisan con un máximo de 6 horas; la fecha de generación del informe no renueva una lectura antigua. No se suman caudales de estaciones sucesivas ni se calcula una hora de llegada desde las compuertas.
 
-Para actualizar, incluí `red_integrada.py` en la raíz de ambos repositorios. ALA también requiere el `monitor.py` actualizado. Una prueba de consulta y exportación sin envíos es:
+Para actualizar, incluí el mismo `red_integrada.py` en la raíz de ambos repositorios. ALA también requiere su `monitor.py` actualizado. Esta prueba se ejecuta **en el repositorio Alerta-Litoral**, que produce el informe común:
 
 ```bash
 python monitor.py --dry-run --export-red red_integrada_revision.json
@@ -28,7 +38,7 @@ La solapa **Modelo de inundaciones** muestra variables atmosféricas por horizon
 
 Los horizontes atmosféricos son corto (0–72 h), mediano (días 4–7) y extendido (días 8–15). Se presenta únicamente la cobertura publicada, sin prolongar un pronóstico más corto. La perspectiva trimestral SMN describe tendencias del período; no determina una probabilidad local de inundación ni anticipa una tormenta puntual.
 
-Las observaciones locales INA corresponden a las series 40 (Zárate) y 41 (Campana). Los pronósticos locales usan otras escalas: 29534 y 3405. Sin una equivalencia vertical documentada, no se comparan sus valores con los umbrales de las series observadas ni con la cota del terreno.
+Las observaciones locales INA corresponden a las series 40 (Zárate) y 41 (Campana). Los pronósticos locales corresponden a las series 29534 y 3405. No se confirmó documentalmente la equivalencia vertical entre observaciones y pronósticos, por lo que no se comparan sus valores con los umbrales de las series observadas ni con la cota del terreno.
 
 Cuando falla la consulta actual, las referencias documentales guardadas se muestran con sus fechas originales y su condición de archivo. No acreditan alturas actuales ni generan alertas. Los umbrales de Prefectura e INA se mantienen identificados por fuente.
 
@@ -44,7 +54,15 @@ La conexión común comparte información con ALA. **Telegram de Zárate–Campa
 
 ## Archivos y ejecución
 
-La aplicación publicada usa `app.py`, `red_integrada.py` y `requirements.txt` en la raíz. Conservá también los módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
+La aplicación publicada usa `app.py`, `red_integrada.py`, `portada_zc.py` y `requirements.txt` en la raíz. Conservá también los módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
+
+`.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio. Tiene permisos de lectura y no recibe credenciales de Telegram. El archivo `workflows/zc-monitor.yml` conserva su ubicación previa fuera de `.github/workflows`; esta versión no activa un monitor local ni envíos.
+
+Para ejecutar las pruebas de vigencia, fuentes y selección de localidad, después de instalar las dependencias:
+
+```bash
+python -m unittest discover -s tests -v
+```
 
 Para abrir el panel local:
 

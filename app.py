@@ -1,4 +1,5 @@
 import hashlib
+import importlib
 
 
 import html
@@ -107,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.6.0"
+VERSION = "ZC 1.7.0"
 
 
 
@@ -1668,6 +1669,7 @@ def procesar_alertas_telegram(df, guardar_registro=None):
 
 
 def crear_mapa(df):
+    from portada_zc import hover_meteorologico_zc
     df=df.copy()
     # Un índice ausente conserva un punto visible; su tamaño no expresa riesgo.
     df['_tamano_mapa']=12.0
@@ -1678,29 +1680,8 @@ def crear_mapa(df):
         "SIN DATOS": "#64748b",
     }
 
-    hover_data = {
-        "provincia": True,
-        "indice": True,
-        "nivel": True,
-        "temperatura": True,
-        "humedad_relativa": True,
-        "viento": True,
-        "rafaga": True,
-        "direccion_viento_texto": True,
-        "humedad_suelo_promedio": True,
-        "lluvia_24": True,
-        "lluvia_72": True,
-        "lluvia_7d": True,
-        "lluvia_futura_24": True,
-        "lluvia_futura_72": True,
-        "runoff_72": True,
-        "cape": True,
-        "prob_lluvia": True,
-        "tendencia": True,
-        "accion_prioritaria": True,
-        "lat": False,
-        "lon": False,
-    }
+    referencia=ahora()
+    df['_detalle_publico']=df.apply(lambda r:hover_meteorologico_zc(r,referencia),axis=1)
 
     fig = px.scatter_map(
         df,
@@ -1709,9 +1690,8 @@ def crear_mapa(df):
         color="nivel",
         size="_tamano_mapa",
         size_max=14,
-        hover_name="localidad",
-        hover_data={**{k:v for k,v in hover_data.items() if k in df},'_tamano_mapa':False},
-        labels={'accion_prioritaria':'Primera acción'},
+        custom_data=['_detalle_publico'],
+        labels={'nivel':'Índice meteorológico'},
         color_discrete_map=colores,
         center={
             "lat": MAP_CENTER_LAT,
@@ -1721,6 +1701,7 @@ def crear_mapa(df):
         height=680,
     )
 
+    fig.update_traces(hovertemplate='%{customdata[0]}<extra></extra>')
     fig.update_layout(
         map_style="open-street-map",
         margin={
@@ -3034,7 +3015,7 @@ def integrar_semaforo(df):
         fusion = fusion_territorial(row, *componentes_localidad(nodo))
         row['partido'] = nodo.get('partido', '')
         row['referencia'] = nodo.get('referencia', '')
-        row['nivel_meteorologico'] = nivel_desde_indice(float(row.get('indice', np.nan)))
+        row['nivel_meteorologico'] = fusion['semaforo']
         row['nivel'] = fusion['semaforo']
         plan=recomendaciones_para_alerta(row)
         row['accion'] = plan['resumen']
@@ -3308,6 +3289,11 @@ def mostrar_trimestral_integrado():
         st.warning('No se pudo recuperar el informe: '+res['error'])
         documental=res.get('referencia_documental') or referencias_documentales_zc()['smn_trimestral']
         st.info('Referencia documental verificada: '+documental['periodo']+'. Emisión: 31/07/2026. Revisión documental: 14/10/2026; sin hora guardada. Esta consulta no recuperó el PDF ni confirmó una edición más reciente.')
+        estado_doc=estado_periodo_trimestral(_ui_fecha_local(documental['inicio']),_ui_fecha_local(documental['fin']))
+        if estado_doc.startswith('vigente'):
+            st.caption('El período agosto–octubre aún incluye la fecha actual. No confirma una actualización de octubre ni describe noviembre o diciembre.')
+        elif estado_doc == 'vencido':
+            st.warning('El trimestre de esta referencia terminó. Se conserva como antecedente, sin perspectiva vigente recuperada.')
         st.link_button('Abrir el PDF oficial de la referencia documental',documental['url'],key='zc_trimestral_documental_pdf')
     else:
         if res.get('ultima_consulta_error'):
@@ -3317,7 +3303,7 @@ def mostrar_trimestral_integrado():
         mensajes = {
             'previsto':'El período del documento todavía no comenzó; se presenta como perspectiva futura.',
             'vencido':'Informe vencido: se presenta como antecedente documental.',
-            'vigente_iniciado_antes':'El trimestre incluye la fecha actual, pero comenzó antes de este mes. No se confirmó que sea la edición mensual más reciente.',
+            'vigente_iniciado_antes':'El trimestre incluye la fecha actual. La emisión original no acredita una actualización de este mes ni describe los meses posteriores al período publicado.',
         }
         if estado in mensajes:
             st.warning(mensajes[estado])
@@ -3684,7 +3670,7 @@ def mostrar_hero_litoral():
             <img class="ala-hero-logo" src="{logo}" alt="" />
           </div>
         </div>
-        <p class="ala-hero-descripcion">Modelo experimental de alerta de inundaciones: pronósticos de lluvia, suelo y crecidas a corto, mediano y mayor plazo, con evidencia, fechas y acciones de preparación.</p>
+        <p class="ala-hero-descripcion">Lluvia, río y avisos oficiales para preparar tu hogar, tu comunidad y tu trabajo rural.</p>
         <div class="ala-hero-datos">{''.join('<span>'+html.escape(p)+'</span>' for p in PARTIDOS)}<span>ECMWF IFS / Open-Meteo</span></div>
       </div>
       <div class="ala-hero-version">{html.escape(VERSION)}</div>
@@ -3694,15 +3680,15 @@ def mostrar_hero_litoral():
       .ala-hero{{position:relative;overflow:hidden;border-radius:22px;margin:2px 0 16px;background:#081c2c;color:#fff;box-shadow:0 14px 38px rgba(4,22,37,.23);font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}}
       .ala-hero .ala-hero-fondo{{position:absolute;inset:0;background-position:center;background-size:cover;transform:scale(1.015)}}
       .ala-hero .ala-hero-velo{{position:absolute;inset:0;background:linear-gradient(180deg,rgba(2,13,27,.56) 0%,rgba(4,24,40,.28) 45%,rgba(2,12,22,.72) 100%)}}
-      .ala-hero .ala-hero-contenido{{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;width:100%;padding:34px 42px 54px;max-width:960px;margin:0 auto}}
-      .ala-hero .ala-hero-kicker{{display:flex;align-items:center;justify-content:center;gap:8px;color:#a9edf0;font-size:11px;font-weight:800;letter-spacing:.14em;line-height:1.5;margin-bottom:16px}}
+      .ala-hero .ala-hero-contenido{{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;text-align:center;width:100%;padding:20px 32px 40px;max-width:960px;margin:0 auto}}
+      .ala-hero .ala-hero-kicker{{display:flex;align-items:center;justify-content:center;gap:8px;color:#a9edf0;font-size:11px;font-weight:800;letter-spacing:.10em;line-height:1.5;margin-bottom:10px}}
       .ala-hero .ala-hero-kicker:before{{content:"";flex:0 0 26px;height:2px;background:#49d3d2;border-radius:2px}}
-      .ala-hero .ala-hero-titulo{{font-size:clamp(25px,4vw,44px);line-height:1.15;margin:0 0 18px;color:#fff;font-weight:800}}
-      .ala-hero .ala-hero-marca{{width:min(100%,520px);padding:12px 16px;margin:0 auto 22px;border-radius:16px;background:#f8fcff;border:1px solid rgba(255,255,255,.7);box-shadow:0 8px 26px rgba(0,0,0,.16)}}
+      .ala-hero .ala-hero-titulo{{font-size:clamp(24px,3.5vw,36px);line-height:1.15;margin:0 0 12px;color:#fff;font-weight:800}}
+      .ala-hero .ala-hero-marca{{width:min(100%,260px);padding:6px 10px;margin:0 auto 12px;border-radius:12px;background:#f8fcff;border:1px solid rgba(255,255,255,.7);box-shadow:0 8px 26px rgba(0,0,0,.16)}}
       .ala-hero .ala-hero-logo-encuadre{{position:relative;width:100%;aspect-ratio:2.7;overflow:hidden}}
       .ala-hero img.ala-hero-logo{{position:absolute;left:0;top:50%;width:100%;max-width:none;height:auto;display:block;transform:translateY(-50%);margin:0}}
-      .ala-hero p.ala-hero-descripcion{{max-width:690px;font-size:clamp(16px,2vw,21px);line-height:1.45;margin:0;color:#effbff;text-shadow:0 2px 12px rgba(0,0,0,.55)}}
-      .ala-hero .ala-hero-datos{{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:22px}}
+      .ala-hero p.ala-hero-descripcion{{max-width:690px;font-size:clamp(15px,1.6vw,18px);line-height:1.45;margin:0;color:#effbff;text-shadow:0 2px 12px rgba(0,0,0,.55)}}
+      .ala-hero .ala-hero-datos{{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:12px}}
       .ala-hero .ala-hero-datos span{{font-size:12px;font-weight:700;line-height:1.3;color:#dffbff;border:1px solid rgba(182,245,246,.4);background:rgba(4,33,49,.52);padding:7px 11px;border-radius:999px;backdrop-filter:blur(4px)}}
       .ala-hero .ala-hero-version{{position:absolute;right:18px;bottom:14px;z-index:2;font-size:11px;font-weight:800;color:#d9fbff;background:rgba(1,18,30,.68);border:1px solid rgba(184,244,244,.35);padding:6px 9px;border-radius:999px}}
       @media(max-width:620px){{.ala-hero{{border-radius:16px}}.ala-hero .ala-hero-contenido{{padding:24px 18px 52px}}.ala-hero .ala-hero-kicker{{font-size:9px;letter-spacing:.08em;margin-bottom:14px}}.ala-hero .ala-hero-kicker:before{{flex-basis:18px}}.ala-hero .ala-hero-marca{{padding:10px 8px;margin-bottom:18px;border-radius:12px}}.ala-hero .ala-hero-datos{{margin-top:18px;gap:6px}}.ala-hero .ala-hero-datos span{{font-size:11px;padding:6px 9px}}}}
@@ -5429,13 +5415,21 @@ def obtener_alturas_prefectura_zc():
                 'referencia_documental':referencias_documentales_zc()['pna_alturas']}
 
 
+def snapshot_alturas_locales_zc(observaciones, referencias, prefectura, referencia=None):
+    """Una misma consulta identificada alimenta las fichas y el modelo."""
+    ref=_ui_fecha_local(referencia if referencia is not None else ahora())
+    return {'observaciones':observaciones,'referencias':referencias,'prefectura':prefectura,
+            'evaluado':ref,'resumenes':{nombre:_resumen_rio_prevencion_zc(nombre,config,
+                observaciones.get(nombre,{}),referencias,ref) for nombre,config in _zc_hidro_estaciones.items()}}
+
+
 def consultar_alturas_locales_zc():
     with ThreadPoolExecutor(max_workers=3) as pool:
         referencias=pool.submit(consultar_referencias_ina_zc)
         consultas={n:pool.submit(_zc_hidro_obtener_observaciones,c['observada']) for n,c in _zc_hidro_estaciones.items()}
         refs=referencias.result()
         observaciones={n:seleccionar_observaciones_locales_zc(f.result(),refs,_zc_hidro_estaciones[n]) for n,f in consultas.items()}
-    return {'observaciones':observaciones,'referencias':refs}
+    return snapshot_alturas_locales_zc(observaciones,refs,obtener_alturas_prefectura_zc())
 
 
 def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
@@ -5448,18 +5442,19 @@ def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
         st.rerun()
     datos=datos if isinstance(datos,dict) else consultar_alturas_locales_zc()
     refs=datos.get('referencias',{})
-    pna=obtener_alturas_prefectura_zc()
+    pna=datos.get('prefectura')
+    if not isinstance(pna,dict):
+        pna=obtener_alturas_prefectura_zc()
+        datos['prefectura']=pna
     archivo_pna=pna.get('referencia_documental',{})
-    if pna.get('error') and archivo_pna.get('registros'):
-        st.warning(pna['error']+' Se muestran por separado lecturas documentales conservadas; no confirman la altura actual.')
-        st.caption('Consulta original de la tabla conservada: '+archivo_pna['consulta_original']+'. Esta fecha no se renueva al abrir la página.')
+    st.caption('Alerta local y Modelo de inundaciones usan la misma consulta INA. Los antecedentes de Prefectura se consultan por separado debajo de cada estación.')
     for col,(nombre,config) in zip(st.columns(2),_zc_hidro_estaciones.items()):
         with col:
             st.markdown('### '+nombre)
             resultado=datos.get('observaciones',{}).get(nombre,{})
             resumen=_resumen_rio_prevencion_zc(nombre,config,resultado,refs)
             tiene=np.isfinite(resumen['altura_m']) and not resumen.get('error')
-            st.metric('INA · última altura observada',f"{resumen['altura_m']:.2f} m" if tiene else 'Sin dato')
+            st.metric('INA · altura observada vigente',f"{resumen['altura_m']:.2f} m" if tiene and resumen['observacion_vigente'] else 'Sin dato actual')
             if tiene:
                 fecha=resumen.get('fecha')
                 zona=resumen['zona_horaria_verificada']
@@ -5467,6 +5462,7 @@ def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
                 if resumen['observacion_vigente']:
                     st.info('Observación de hasta 6 horas · edad: '+f"{resumen['edad_horas']:.1f} h")
                 else:
+                    st.caption(f"Última lectura recibida: {resumen['altura_m']:.2f} m. Se conserva como antecedente.")
                     st.warning('Lectura de más de 6 horas; comprobar altura actual.' if zona else 'Hora local sin confirmar; se muestra el registro publicado.')
             else:st.warning(resumen.get('error') or 'No se recibió una altura observada utilizable.')
             st.caption('Serie INA '+str(config['observada'])+' · consulta: '+str(resultado.get('consulta','sin fecha')))
@@ -5480,15 +5476,21 @@ def mostrar_alturas_locales_zc(datos=None,key_prefix='zc_alturas_principal_'):
             if not registro:
                 registro=archivo_pna.get('registros',{}).get(nombre)
                 documental=bool(registro)
-            st.metric('Prefectura · lectura documental conservada' if documental else 'Prefectura · último registro publicado',f"{registro['altura_m']:.2f} m" if registro else 'Sin dato')
-            if registro:
-                if documental:st.caption('Archivo documental del 14/10/2026. Lectura conservada; no es una medición actual ni se usa para activar alertas.')
-                st.caption('Fecha y hora de Prefectura: '+registro['fecha_publicada']+' · huso horario no especificado en la tabla.')
-                st.write('Tendencia publicada por Prefectura: **'+registro['tendencia_publicada']+'**.')
-                st.caption(f"Referencias PNA: alerta {registro['alerta_m']:.2f} m · evacuación {registro['evacuacion_m']:.2f} m.")
-                if resumen['umbral_publicado'] and (abs(registro['alerta_m']-resumen['alerta_m'])>0.005 or abs(registro['evacuacion_m']-resumen['evacuacion_m'])>0.005):
-                    st.warning('INA y Prefectura publican referencias distintas para este puerto. Reconfirmá la escala y el umbral aplicable con la autoridad local.')
-            else:st.caption(pna.get('error') or 'Prefectura no publicó una fila utilizable para este puerto.')
+            with st.expander('Prefectura · registros publicados y antecedentes de '+nombre):
+                st.metric('Lectura documental conservada' if documental else 'Último registro publicado · hora sin confirmar',f"{registro['altura_m']:.2f} m" if registro else 'Sin dato')
+                if registro:
+                    if documental:
+                        st.caption('Archivo documental del 14/10/2026. No confirma la altura actual ni se usa para activar alertas.')
+                        st.caption('Consulta original: '+str(archivo_pna.get('consulta_original','sin fecha guardada')))
+                    st.caption('Fecha y hora publicada: '+registro['fecha_publicada']+' · huso horario no especificado en la tabla.')
+                    st.write('Tendencia publicada por Prefectura: **'+registro['tendencia_publicada']+'**.')
+                    st.caption(f"Referencias PNA: alerta {registro['alerta_m']:.2f} m · evacuación {registro['evacuacion_m']:.2f} m.")
+                    if resumen['umbral_publicado'] and (abs(registro['alerta_m']-resumen['alerta_m'])>0.005 or abs(registro['evacuacion_m']-resumen['evacuacion_m'])>0.005):
+                        st.warning('INA y Prefectura publican referencias distintas para este puerto. Reconfirmá la escala y el umbral aplicable con la autoridad local.')
+                if pna.get('error'):
+                    st.caption(pna['error'])
+                elif not registro:
+                    st.caption('Prefectura no publicó una fila utilizable para este puerto.')
             if resultado.get('url'):st.link_button('Fuente INA · '+nombre,resultado['url'],key=key_prefix+'ina_'+str(config['observada']))
     st.caption('Los valores de distintas horas se mantienen separados. Los registros de Prefectura sin zona horaria explícita se muestran como información publicada; no activan una orden ni se mezclan con la serie INA para calcular una crecida.')
     st.link_button('Abrir alturas oficiales de Prefectura',pna['fuente'],key=key_prefix+'pna')
@@ -6902,7 +6904,7 @@ def mostrar_historicos_cuenca_zc(key_prefix='zc_cuenca_hist_'):
 # END CUENCA ZC 1.5.0
 
 def mostrar_prevencion_inundaciones_zc(df):
-    for clave in ('zc_modelo_predictivo_resultado','zc_prevencion_resultado','zc_cuenca_decision','zc_alturas_locales_resultado'):
+    for clave in ('zc_modelo_predictivo_resultado','zc_prevencion_resultado','zc_cuenca_decision','zc_alturas_locales_resultado','zc_portada_contexto'):
         st.session_state.pop(clave,None)
     st.write('Lluvia intensa, crecida del Paraná y condiciones del estuario pueden afectar barrios, costas e islas. El modelo analiza pronósticos por horizonte y presenta por separado la evidencia actual.')
     if st.button('Actualizar vigilancia de inundaciones',key='zc_prevencion_refresh'):
@@ -6925,7 +6927,8 @@ def mostrar_prevencion_inundaciones_zc(df):
             {'df':pd.DataFrame(),'url':_zc_hidro_url_pronostico(_zc_hidro_estaciones[nombre]['pronostico'])},'pronóstico INA de '+nombre)) for nombre,f in f_prono.items()}
         cuenca=resolver_fuente_modelo_zc(f_cuenca,{'estado':'sin_verificar','registros':[],
             'incertidumbres':['No se recuperó contexto de cuenca verificable.']},'cuenca del Paraná')
-    st.session_state['zc_alturas_locales_resultado']={'observaciones':observaciones,'referencias':referencias}
+    st.session_state['zc_alturas_locales_resultado']=snapshot_alturas_locales_zc(observaciones,referencias,obtener_alturas_prefectura_zc())
+    st.session_state['zc_portada_contexto']={'cap':cap,'rios':{r['nombre']:r for r in rios}}
     st.session_state['zc_cuenca_resultado']=cuenca
     partes=st.session_state.get('zc_partes_inundacion',pd.DataFrame())
     if not partes.empty:
@@ -7965,7 +7968,7 @@ def mostrar_modelo_predictivo_zc(resultado):
     st.caption('Los intervalos de evento son disjuntos: 0–72 h, 72–168 h y 168–360 h. En los días 4–7 el río sólo tiene cobertura parcial hasta 96 h; a los días 8–15 falta pronóstico fluvial local. La falta de esa fuente queda explícita.')
 
     clima=resultado.get('clima') if isinstance(resultado.get('clima'),dict) else {}
-    st.subheader('Perspectiva estacional · uno a tres meses')
+    st.subheader('Perspectiva estacional · período publicado por SMN')
     st.write('**'+_modelo_horizontes_texto(clima.get('estado'),'Contexto climático pendiente')+'**')
     st.write(_modelo_horizontes_texto(clima.get('descripcion'),'Revisá el trimestre y las leyendas del informe SMN disponible en Datos oficiales.'))
     st.caption('La perspectiva climática orienta preparación estacional. No asigna una fecha de inundación, y sus categorías no se convierten en probabilidades de inundación local.')
@@ -7977,9 +7980,11 @@ def mostrar_modelo_predictivo_zc(resultado):
         if es_documental:
             st.warning('Referencia documental conservada. El servidor no descargó el PDF en esta consulta y no confirmó una edición mensual más reciente. Sus datos no activan alertas locales.')
             st.link_button('Abrir PDF oficial de la referencia SMN',clima['url_documento'],key='zc_modelo_clima_documental_pdf')
-        estado_periodo={'vigente':'Trimestre que comienza este mes','vigente_iniciado_antes':'Incluye la fecha actual; comenzó en un mes anterior',
+        estado_periodo={'vigente_mes_actual':'Trimestre que comienza este mes','vigente_iniciado_antes':'Incluye la fecha actual; comenzó en un mes anterior',
             'previsto':'Trimestre futuro','vencido':'Trimestre vencido; antecedente documental'}.get(clima.get('estado_documento'),'Período sin confirmar')
         st.caption('Estado del período: '+estado_periodo+'. El documento completo, sus mapas y leyendas están en Datos oficiales SMN.')
+        if clima.get('estado_documento') == 'vigente_iniciado_antes':
+            st.info('El período publicado aún incluye la fecha actual. Su emisión original no acredita una actualización de este mes ni extiende el pronóstico a los meses posteriores al trimestre indicado.')
     else:
         st.warning('Informe trimestral sin recuperar: '+_modelo_horizontes_texto(clima.get('error_consulta')))
     if clima.get('error_consulta') and clima.get('informe_smn_disponible'):
@@ -8055,7 +8060,7 @@ def actualizar_fuentes_zc():
     st.session_state['sinarame_visor_revision'] = st.session_state.get('sinarame_visor_revision', 0) + 1
     for clave in ('df_alerta', 'raw_ecmwf', 'df_operativo', '_zc_meteo_ultimo_intento',
                   'zc_relieve', 'ficha_sat_catalogo','zc_ina_observaciones_guardadas',
-                  'zc_alturas_locales_resultado',
+                  'zc_alturas_locales_resultado','zc_portada_contexto',
                   'zc_trimestral_ultimo_intento',
                   'zc_cuenca_resultado','zc_cuenca_decision','zc_cuenca_hist_catalogo','zc_cuenca_hist_resultados'):
         st.session_state.pop(clave, None)
@@ -8084,10 +8089,21 @@ def mostrar_resumen_meteorologico_zc(df):
     st.markdown('[Tiempo y variables actuales](#condiciones-meteorologicas-actuales) · [Suelo](#estado-del-suelo) · [Lluvia y escurrimiento](#precipitacion-y-runoff) · [Pronóstico diario](#pronostico-extendido-15-dias) · [Historial](#historial)')
 
 
+def cargar_red_integrada_zc():
+    import red_integrada as red
+    if getattr(red,'VERSION_RED',None) != '2026-10-17.2':
+        red=importlib.reload(red)
+    return red
+
+
 def render_app():
     mostrar_hero_litoral()
     vigilar_actualizacion_meteorologica()
-    st.caption(f"Herramienta experimental de apoyo a decisiones · Versión {VERSION} · Fuentes y límites documentados en Método y validación local")
+    try:
+        cargar_red_integrada_zc().mostrar_estado_conexion(st,app_actual='zc')
+    except Exception:
+        st.caption('Conexión con la red regional por confirmar. Revisá el informe y su fecha en Red integrada.')
+    st.caption(f"Herramienta experimental · {VERSION} · Las alertas oficiales y sus horarios se consultan en SMN; la preparación local se explica a continuación.")
     firma_actual=firma_cobertura()
     if st.session_state.get('firma_cobertura')!=firma_actual:
         for clave in ('df_alerta','raw_ecmwf','df_operativo','firma_historial_operativo','ficha_localidad','localidad_seleccionada'):
@@ -8105,8 +8121,7 @@ def render_app():
     ])
     with tab_red:
         try:
-            from red_integrada import mostrar_red_integrada
-            mostrar_red_integrada(st, repository="FedericoIeraci-cell/Alerta-Litoral", app_actual="zc")
+            cargar_red_integrada_zc().mostrar_red_integrada(st, repository="FedericoIeraci-cell/Alerta-Litoral", app_actual="zc")
         except Exception:
             st.warning("No se pudo cargar la información compartida en esta consulta. Los paneles regionales siguen disponibles; no se confirma el estado de la red.")
     with tab_radar:
@@ -8285,7 +8300,17 @@ def render_app():
 
 
         df_alerta = integrar_semaforo(df_alerta)
-        mostrar_fechas_meteorologia(df_alerta)
+        st.subheader('Tu lugar de referencia')
+        localidades=sorted(df_alerta.localidad.tolist())
+        localidad_seleccionada=None
+        if localidades:
+            if st.session_state.get('localidad_detalle') not in localidades:
+                st.session_state.pop('localidad_detalle',None)
+            destacada=localidad_prioritaria(df_alerta)
+            localidad_seleccionada=st.selectbox('Seleccionar localidad',localidades,
+                index=localidades.index(destacada) if destacada in localidades else 0,key='localidad_detalle')
+        st.caption('Elegí el punto más cercano. Son referencias del modelo; no certifican el estado de cada calle, isla o parcela.')
+        portada=st.container()
         with tab_modelo:
             try:
                 mostrar_prevencion_inundaciones_zc(df_alerta)
@@ -8308,29 +8333,42 @@ def render_app():
                 st.header('Cuenca del Paraná · verificación pendiente')
                 st.error('No se pudo completar la consulta de cuenca. Las restantes solapas conservan sus datos; revisá los boletines originales y volvé a actualizar.')
                 st.link_button('Boletines oficiales INA',CUENCA_INA_INDICE_ZC,key='zc_cuenca_error_ina')
-        mostrar_sintesis_integrada_cuenca_zc(st.session_state.get('zc_cuenca_decision',{}))
+        alturas=st.session_state.get('zc_alturas_locales_resultado')
+        if not isinstance(alturas,dict):
+            try:
+                alturas=consultar_alturas_locales_zc()
+                st.session_state['zc_alturas_locales_resultado']=alturas
+            except Exception:
+                alturas={'observaciones':{},'referencias':{}}
+        if localidad_seleccionada:
+            from portada_zc import construir_portada_zc,mostrar_portada_zc
+            row_acciones=df_alerta[df_alerta.localidad.eq(localidad_seleccionada)].iloc[0]
+            partido=row_acciones.get('partido')
+            config=_zc_hidro_estaciones.get(partido)
+            rio=_resumen_rio_prevencion_zc(partido,config,alturas.get('observaciones',{}).get(partido,{}),
+                alturas.get('referencias',{})) if config else {}
+            contexto=st.session_state.get('zc_portada_contexto',{})
+            resumen=construir_portada_zc(row_acciones,
+                decision=st.session_state.get('zc_cuenca_decision'),
+                modelo=st.session_state.get('zc_modelo_predictivo_resultado'),rio=rio,
+                cap=contexto.get('cap'),cuenca=st.session_state.get('zc_cuenca_resultado'),referencia=ahora())
+            with portada:
+                mostrar_portada_zc(st,resumen)
         try:
-            mostrar_alturas_locales_zc(st.session_state.get('zc_alturas_locales_resultado'))
+            with st.expander('Alturas de ambos puertos · fuentes, referencias y evolución'):
+                mostrar_alturas_locales_zc(alturas)
         except Exception:
             st.subheader('🌊 Altura del agua · Zárate y Campana')
             st.warning('No se pudo completar la vista de alturas locales. Consultá las fuentes originales y volvé a actualizar.')
             st.link_button('Alturas originales de Prefectura',_zc_hidro_enlaces['Prefectura · alturas observadas'],key='zc_alturas_principal_fallo')
         st.caption('Modelo, crecidas, sudestada y preparación: solapa Modelo de inundaciones. Aquí tenés la meteorología completa de cada localidad.')
-        mostrar_resumen_meteorologico_zc(df_alerta)
+        with st.expander('Comparar meteorología de las diez referencias y sus fechas'):
+            mostrar_fechas_meteorologia(df_alerta)
+            mostrar_resumen_meteorologico_zc(df_alerta)
         st.session_state["df_operativo"] = df_alerta
-        st.subheader('Tu localidad · alerta y acciones recomendadas')
-        localidades=sorted(df_alerta.localidad.tolist())
-        if localidades:
-            if st.session_state.get('localidad_detalle') not in localidades:
-                st.session_state.pop('localidad_detalle',None)
-            destacada=localidad_prioritaria(df_alerta)
-            localidad_seleccionada=st.selectbox('Seleccionar localidad',localidades,
-                index=localidades.index(destacada) if destacada in localidades else 0,key='localidad_detalle')
-            row_acciones=df_alerta[df_alerta.localidad.eq(localidad_seleccionada)].iloc[0]
-            mostrar_recomendaciones_alerta(row_acciones,key='plan_acciones_principal')
-        else:
-            localidad_seleccionada=None
-        st.warning('El semáforo describe lluvia y condiciones del modelo. Un verde no descarta crecida del Paraná, sudestada, agua en islas ni anegamiento de una calle. Consultá la pestaña Suelo y ríos y los avisos SMN.')
+        if localidad_seleccionada:
+            with st.expander('Plan meteorológico detallado para '+localidad_seleccionada):
+                mostrar_recomendaciones_alerta(row_acciones,key='plan_acciones_principal')
         if st.button('Consultar alturas y pronóstico INA', key='abrir_ina_principal'):
             st.session_state['ina_principal'] = not st.session_state.get('ina_principal', False)
         if st.session_state.get('ina_principal'):
@@ -8371,8 +8409,7 @@ def render_app():
         # ============================================================
 
         df_validos = df_alerta[
-            df_alerta["estado_datos"]
-            == "OK"
+            df_alerta["nivel"].isin(['VERDE','AMARILLO','ROJO'])
         ].copy()
 
         if df_validos.empty:
@@ -8414,16 +8451,16 @@ def render_app():
         cantidad_amarillo = int((df_alerta["nivel"] == "AMARILLO").sum())
         cantidad_verde = int((df_alerta["nivel"] == "VERDE").sum())
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("🔴 Rojo", cantidad_rojo)
-        col2.metric("🟡 Amarillo", cantidad_amarillo)
-        col3.metric("🟢 Verde", cantidad_verde)
+        col1.metric("🔴 Rojo meteorológico", cantidad_rojo)
+        col2.metric("🟡 Amarillo meteorológico", cantidad_amarillo)
+        col3.metric("🟢 Verde meteorológico", cantidad_verde)
         col4.metric("📊 Índice meteorológico máximo", f"{maximo:.1f}/100" if np.isfinite(maximo) else 'Sin datos')
         if cantidad_rojo:
-            st.error(f"🔴 {cantidad_rojo} nodos en ROJO según las fuentes disponibles.")
+            st.error(f"🔴 {cantidad_rojo} referencias con índice meteorológico ROJO.")
         elif cantidad_amarillo:
-            st.warning(f"🟡 {cantidad_amarillo} nodos en AMARILLO; preparar medidas y verificar accesos.")
+            st.warning(f"🟡 {cantidad_amarillo} referencias con índice meteorológico AMARILLO; revisá lluvia, suelo y accesos.")
         elif cantidad_verde:
-            st.success("🟢 Los nodos con datos están en VERDE según las fuentes disponibles.")
+            st.info("🟢 Las referencias con datos completos tienen índice meteorológico VERDE. El estado del río y la preparación regional están en la ficha superior.")
         else:
             st.warning('⚪ No hay índices meteorológicos completos para interpretar el riesgo de esta consulta.')
         st.caption("El color representa el índice meteorológico experimental. Las capas de ríos, suelo, agua y relieve se consultan por separado y no tienen umbrales locales calibrados. Una cobertura parcial no certifica ausencia de riesgo.")
