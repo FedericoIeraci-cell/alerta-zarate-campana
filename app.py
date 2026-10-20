@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.9.2"
+VERSION = "ZC 1.9.3"
 
 
 
@@ -915,7 +915,7 @@ def obtener_datos_ecmwf():
         solicitud={**params,'latitude':','.join(f'{n["lat"]:.6f}' for n in lote),
                    'longitude':','.join(f'{n["lon"]:.6f}' for n in lote)}
         try:
-            response=requests.get(API_URL,params=solicitud,headers=headers,timeout=(5,45))
+            response=requests.get(API_URL,params=solicitud,headers=headers,timeout=(20,45))
             response.raise_for_status()
             payload=response.json()
             if isinstance(payload,dict) and payload.get('error'):
@@ -9572,7 +9572,7 @@ def render_app():
         )
 
         st.write(
-            "Nodos procesados: "
+            "Índices meteorológicos completos: "
             f"**{len(df_validos)} / {len(NODOS)}**"
         )
 

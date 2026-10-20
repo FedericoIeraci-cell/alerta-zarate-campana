@@ -516,4 +516,4 @@ def hover_meteorologico_zc(row, referencia=None):
     campos = [("Lluvia prevista · 24 h", _valor(valores.get("lluvia_futura_24"), 1, " mm")),
               ("Lluvia prevista · 72 h", _valor(valores.get("lluvia_futura_72"), 1, " mm")),
               ("Suelo · agua por volumen", _valor(valores.get("humedad_suelo_promedio"), 3, " m³/m³"))]
-    return "<b>"+esc(row.get("localidad"))+"</b><br>Semáforo meteorológico: "+esc(lluvia['nivel'])+"<br>"+"<br>".join(esc(k)+": "+esc(v) for k,v in campos)+"<br>Cálculo: "+esc(row.get("actualizado") or "Sin fecha")+"<br>Río y preparación regional: consultar la ficha superior."
+    return "<b>"+esc(row.get("localidad"))+"</b><br>Semáforo meteorológico: "+esc(lluvia['nivel'])+"<br>"+"<br>".join(esc(k)+": "+esc(v) for k,v in campos)+"<br>Consulta meteorológica: "+esc(_hora(lluvia["consulta"]))+"<br>Cálculo: "+esc(row.get("actualizado") or "Sin fecha")+"<br>Río y preparación regional: consultar la ficha debajo del mapa."
