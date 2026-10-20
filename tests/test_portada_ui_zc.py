@@ -26,19 +26,22 @@ class PortadaStreamlitTests(unittest.TestCase):
         render=next(n for n in arbol.body if isinstance(n,ast.FunctionDef) and n.name=='render_app')
         llamadas=[n for n in ast.walk(render) if isinstance(n,ast.Expr)
                   and isinstance(n.value,ast.Call)
-                  and any(isinstance(c,ast.Call) and isinstance(c.func,ast.Name)
-                          and c.func.id=='html_mapa_litoral' for c in ast.walk(n))]
-        self.assertEqual(len(llamadas),1,'La portada debe integrar un solo mapa local')
+                  and isinstance(n.value.func,ast.Name)
+                  and n.value.func.id=='mostrar_mapa_principal'
+                  and any(isinstance(a,ast.Name) and a.id=='df_alerta' for a in n.value.args)]
+        self.assertEqual(len(llamadas),1,'La portada debe actualizar una sola vez el mapa con los resultados')
         codigo=PATHS+'''
 import streamlit as st
 import streamlit.components.v1 as components
 import pandas as pd
 from test_evidencia_app_zc import cargar_app, REF
 from test_portada_zc import localidad
-from mapa_litoral import html_mapa_litoral
+from mapa_inicio import mostrar_mapa_principal
 from portada_zc import hover_meteorologico_zc
 app=cargar_app()
 app.ahora=lambda: REF
+ahora=app.ahora
+NODOS=app.NODOS
 referencia_mapa=REF
 filas=[]
 for i,nodo in enumerate(app.NODOS):

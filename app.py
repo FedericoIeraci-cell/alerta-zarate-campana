@@ -100,7 +100,7 @@ if __name__ == '__main__' and not ALA_MONITOR_HEADLESS:
         page_title="A.L.A. · Zárate–Campana",
         page_icon="🌧️",
         layout="wide",
-        initial_sidebar_state="auto",
+        initial_sidebar_state="collapsed",
     )
 
 
@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.9.1"
+VERSION = "ZC 1.9.2"
 
 
 
@@ -930,7 +930,9 @@ def obtener_datos_ecmwf():
             return [{'error':'No se pudo completar la consulta meteorológica del lote'} for _ in lote]
     lotes=[NODOS[i:i+8] for i in range(0,len(NODOS),8)]
     with ThreadPoolExecutor(max_workers=3) as pool:
-        return [fila for lote in pool.map(consultar_lote,lotes) for fila in lote]
+        respuestas = [fila for lote in pool.map(consultar_lote,lotes) for fila in lote]
+    from recuperacion_meteo_zc import recuperar_respuestas_zc
+    return recuperar_respuestas_zc(NODOS, respuestas, referencia=ahora())
 
 
 
@@ -1059,6 +1061,8 @@ def procesar_nodo(nodo, datos, referencia_historica=None):
         faltantes.append('humedad de al menos tres capas con antigüedad máxima de tres horas')
     completa = not faltantes
     salida['cobertura_ventanas'] = cobertura
+    salida['cobertura_lluvia_futura_24'] = cobertura['lluvia_futura_24']['completa']
+    salida['cobertura_lluvia_futura_72'] = cobertura['lluvia_futura_72']['completa']
     salida['cobertura_meteorologica'] = completa
     salida['estado_datos'] = 'OK' if completa else 'INCOMPLETO'
     salida['error_datos'] = '' if completa else 'Índice no disponible: falta cobertura completa de ' + ', '.join(faltantes)
@@ -8118,7 +8122,13 @@ def mostrar_conexion_portada_zc():
 
 
 def render_app():
-    mostrar_hero_litoral()
+    from mapa_inicio import mostrar_mapa_principal
+    from portada_zc import hover_meteorologico_zc
+    mapa_principal = st.empty()
+    with mapa_principal.container():
+        mostrar_mapa_principal(st, NODOS, componentes=components, geometrias={},
+                              ajustar_a='puntos', nombre='Zárate–Campana · mapa de nodos',
+                              leyenda='Índice meteorológico experimental')
     with st.sidebar:
         vigilar_actualizacion_meteorologica()
     firma_actual=firma_cobertura()
@@ -8136,16 +8146,6 @@ def render_app():
         "🌧️ Alerta local", "🌐 Red integrada", "🌊 Modelo de inundaciones", "📡 Radar regional", "🇦🇷 Datos oficiales SMN",
         "🌱 Suelo y ríos", "🌊 El Niño / La Niña", "🗺️ Territorio y accesos", "📘 Método y validación local", "🏞️ Cuenca del Paraná",
     ])
-    with tab_red:
-        try:
-            cargar_red_integrada_zc().mostrar_red_integrada(st, repository="FedericoIeraci-cell/Alerta-Litoral", app_actual="zc")
-        except Exception:
-            st.warning("No se pudo cargar la información compartida en esta consulta. Los paneles regionales siguen disponibles; no se confirma el estado de la red.")
-    with tab_radar:
-        mostrar_radar_smn()
-    with tab_smn:
-        mostrar_datos_smn()
-
     # ============================================================
     # SIDEBAR
     # ============================================================
@@ -8317,6 +8317,12 @@ def render_app():
 
 
         df_alerta = integrar_semaforo(df_alerta)
+        with mapa_principal.container():
+            mostrar_mapa_principal(st, NODOS, df_alerta, componentes=components,
+                                  geometrias={}, ajustar_a='puntos',
+                                  nombre='Zárate–Campana · mapa de nodos',
+                                  leyenda='Índice meteorológico experimental',
+                                  tarjeta_nodo=lambda row: hover_meteorologico_zc(row, ahora()))
         localidades=sorted(df_alerta.localidad.tolist())
         localidad_seleccionada=None
         if localidades:
@@ -8439,9 +8445,10 @@ def render_app():
 
         if df_validos.empty:
 
-            st.error(
-                "No se pudieron obtener datos meteorológicos válidos."
-            )
+            if any(df_alerta.get('cobertura_lluvia_futura_72', pd.Series(False, index=df_alerta.index))):
+                st.info('Hay lluvia prevista disponible. El índice completo sigue pendiente porque faltan otras variables; consultá los valores y sus fechas en cada nodo.')
+            else:
+                st.error('No se pudieron obtener datos meteorológicos verificables en esta consulta.')
 
             errores = df_alerta[
                 [
@@ -8503,26 +8510,6 @@ def render_app():
         # ============================================================
         # MAPAS
         # ============================================================
-
-        st.header(
-            "🗺️ Referencias meteorológicas de Zárate–Campana"
-        )
-
-        st.caption(
-            "El mapa está centrado en Zárate, Campana y su entorno de islas. "
-            "Los puntos grises indican información insuficiente; no son riesgo bajo."
-        )
-
-        from mapa_litoral import html_mapa_litoral
-        from portada_zc import hover_meteorologico_zc
-        referencia_mapa = ahora()
-        components.html(html_mapa_litoral(df_alerta, {},
-                        tarjeta_nodo=lambda row: hover_meteorologico_zc(row, referencia_mapa),
-                        altura=540, ajustar_a='puntos',
-                        titulo='Referencias meteorológicas de Zárate–Campana',
-                        leyenda='Índice meteorológico experimental'),
-                        height=540, scrolling=False)
-
 
         st.header(
             "🌐 Windy — pronóstico meteorológico interactivo"
@@ -9605,8 +9592,21 @@ def render_app():
             "Sistema experimental · Fuentes y límites en Método y validación local"
         )
 
+    with tab_red:
+        try:
+            cargar_red_integrada_zc().mostrar_red_integrada(st, repository="FedericoIeraci-cell/Alerta-Litoral", app_actual="zc")
+        except Exception:
+            st.warning("No se pudo cargar la información compartida en esta consulta. Los paneles regionales siguen disponibles; no se confirma el estado de la red.")
+    with tab_radar:
+        mostrar_radar_smn()
+    with tab_smn:
+        mostrar_datos_smn()
+
+
 
     mostrar_paneles_ficha(tab_fuentes, tab_enos, tab_territorio, tab_historia)
+    with st.expander('Acerca de '+APP_NAME):
+        mostrar_hero_litoral()
 
 
 
@@ -10631,16 +10631,17 @@ def _validar_respuesta_meteorologica(nodo, datos, referencia):
              'soil_moisture_28_to_100cm', 'soil_moisture_100_to_255cm')
     limpio = dict(hourly)
     limpio['time'] = [hora.isoformat() for hora in horas]
+    problemas = []
     for campo in ('precipitation', 'runoff') + capas:
-        if campo in capas and campo not in hourly:
-            limpio[campo] = [None] * len(horas)
-            continue
-        esperada = 'm³/m³' if campo in capas else 'mm'
-        if units.get(campo) != esperada:
-            raise ValueError('Una unidad principal no coincide con mm o m³/m³ según la variable.')
+        obligatoria = campo == 'precipitation'
+        esperadas = ('m³/m³', 'm3/m3') if campo in capas else ('mm',)
         valores = hourly.get(campo)
-        if not isinstance(valores, list) or len(valores) != len(horas):
-            raise ValueError('Una variable principal no coincide en longitud con la grilla horaria.')
+        if units.get(campo) not in esperadas or not isinstance(valores, list) or len(valores) != len(horas):
+            if obligatoria:
+                raise ValueError('La precipitación requiere unidad mm y la grilla horaria completa.')
+            limpio[campo] = [None] * len(horas)
+            problemas.append(campo + ': unidad o longitud no verificadas')
+            continue
         normalizados = []
         for valor in valores:
             if valor is None:
@@ -10650,12 +10651,19 @@ def _validar_respuesta_meteorologica(nodo, datos, referencia):
                 if isinstance(valor, bool):
                     raise ValueError()
                 numero = float(valor)
-            except (TypeError, ValueError):
-                raise ValueError('Una variable principal contiene valores no numéricos.') from None
+            except (TypeError, ValueError, OverflowError):
+                if obligatoria:
+                    raise ValueError('La precipitación contiene un valor no numérico.') from None
+                normalizados.append(None)
+                problemas.append(campo + ': valor no numérico')
+                continue
             if np.isnan(numero):
                 normalizados.append(None)
             elif not np.isfinite(numero) or numero < 0 or (campo in capas and numero > 1):
-                raise ValueError('Una variable principal contiene valores fuera de sus límites físicos.')
+                if obligatoria:
+                    raise ValueError('La precipitación contiene un valor fuera de sus límites físicos.')
+                normalizados.append(None)
+                problemas.append(campo + ': valor fuera de límites físicos')
             else:
                 normalizados.append(numero)
         limpio[campo] = normalizados
@@ -10681,7 +10689,8 @@ def _validar_respuesta_meteorologica(nodo, datos, referencia):
             raise ValueError('La hora de consulta de la fuente no es verificable.') from None
     else:
         consulta = None
-    metadatos = {'consulta_meteorologica': consulta,
+    metadatos = {'problemas_variables_meteorologicas': sorted(set(problemas)),
+                 'consulta_meteorologica': consulta,
                  'referencia_datos': referencia.tz_localize(TZ).isoformat(),
                  'celda_lat': lat, 'celda_lon': lon, 'distancia_celda_km': round(distancia, 2),
                  'capas_humedad_vigentes': len(fechas_suelo),
