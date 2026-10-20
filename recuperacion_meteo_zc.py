@@ -14,6 +14,8 @@ ART = ZoneInfo("America/Argentina/Buenos_Aires")
 FUENTE = "https://api.open-meteo.com/v1/ecmwf"
 MAX_AGE_HOURS = 3
 ERROR_PUBLICO = "La fuente meteorológica no devolvió datos utilizables para este nodo."
+_CAPAS_SUELO = ("soil_moisture_0_to_7cm", "soil_moisture_7_to_28cm",
+                "soil_moisture_28_to_100cm", "soil_moisture_100_to_255cm")
 
 
 def _fecha(value):
@@ -100,10 +102,93 @@ def _leer_red(datos_red, referencia):
         return None
 
 
-def recuperar_respuestas_zc(nodos, respuestas, referencia=None, datos_red=None):
+def _respuesta_completa(nodo, payload, consulta, referencia):
+    """Cobertura que necesita el índice, sin calcular ni asignar riesgo."""
+    if not _grilla_utilizable(nodo, payload, consulta, referencia):
+        return False
+    hourly, units = payload["hourly"], payload["hourly_units"]
+    horas = []
+    for value in hourly["time"]:
+        hora = datetime.fromisoformat(value)
+        horas.append(hora.astimezone(ART) if hora.tzinfo is not None else hora.replace(tzinfo=ART))
+    ref = referencia.astimezone(ART).replace(minute=0, second=0, microsecond=0)
+    posiciones = {hora: i for i, hora in enumerate(horas)}
+
+    def ventana(campo, cantidad, futura=False):
+        values = hourly.get(campo)
+        if units.get(campo) != "mm" or not isinstance(values, list) or len(values) != len(horas):
+            return False
+        inicio = ref if futura else ref - timedelta(hours=cantidad)
+        for n in range(1, cantidad + 1):
+            i = posiciones.get(inicio + timedelta(hours=n))
+            value = _numero(values[i]) if i is not None else None
+            if value is None or value < 0:
+                return False
+        return True
+
+    if not (ventana("precipitation", 168) and ventana("precipitation", 72, True)
+            and ventana("runoff", 72)):
+        return False
+    capas = 0
+    for campo in _CAPAS_SUELO:
+        values = hourly.get(campo)
+        if (units.get(campo) not in {"m³/m³", "m3/m3"} or
+                not isinstance(values, list) or len(values) != len(horas)):
+            continue
+        if any(0 <= (ref - hora).total_seconds() <= 3 * 3600
+               and (value := _numero(values[i])) is not None and 0 <= value <= 1
+               for i, hora in enumerate(horas)):
+            capas += 1
+    return capas >= 3
+
+
+def _leer_captura_completa(nodos, referencia, contenido=None):
+    """Contrato comprimido compartido con el productor; falla de forma aislada."""
+    if contenido is False:
+        return None  # El getter ya hizo su única consulta de la captura.
+    try:
+        from meteorologia_compartida import consultar_captura_zc, deserializar_captura
+        return (consultar_captura_zc(nodos, referencia=referencia) if contenido is None
+                else deserializar_captura(contenido, nodos, referencia=referencia))
+    except Exception:
+        return None
+
+
+def _respuesta_de_captura(dato, consulta, referencia):
+    recuperado = deepcopy(dato)
+    recuperado["_consulta_meteorologica"] = _fecha(consulta).astimezone(ART).isoformat()
+    recuperado["_origen_meteorologico"] = "captura_ecmwf_zc"
+    recuperado["_recuperacion_meteorologica"] = "captura_completa_compartida_vigente"
+    recuperado["_fecha_ultimo_intento_meteorologico"] = referencia.isoformat()
+    return recuperado
+
+
+def obtener_respuestas_completas_zc(nodos, referencia=None):
+    """Primera opción rápida del getter: captura pública completa o ``None``.
+
+    Sólo evita las consultas directas si todos los puntos tienen la cobertura
+    meteorológica necesaria. Si devuelve ``None``, el getter puede continuar con
+    la API y pasar ``captura_completa=False`` a la recuperación final para no
+    repetir la descarga que ya se intentó.
+    """
+    ref = _fecha(referencia) if referencia is not None else datetime.now(timezone.utc)
+    if ref is None:
+        return None
+    nodos = list(nodos)
+    captura = _leer_captura_completa(nodos, ref)
+    if captura is None or not all(
+            _respuesta_completa(nodo, dato, captura["consultado"], ref)
+            for nodo, dato in zip(nodos, captura["datos"])):
+        return None
+    return [_respuesta_de_captura(dato, captura["consultado"], ref)
+            for dato in captura["datos"]]
+
+
+def recuperar_respuestas_zc(nodos, respuestas, referencia=None, datos_red=None,
+                           captura_completa=None):
     """Mantiene respuestas utilizables y rescata únicamente las que fallaron.
 
-    ``respuestas=[]`` permite solicitar primero las grillas compartidas y
+    ``respuestas=[]`` permite solicitar primero la captura completa compartida y
     consultar después los puntos que sigan sin datos. Nunca convierte resúmenes
     acumulados en una serie horaria. La edad máxima sigue siendo la del contrato
     público compartido: tres horas desde la consulta original, no su lectura.
@@ -114,12 +199,28 @@ def recuperar_respuestas_zc(nodos, respuestas, referencia=None, datos_red=None):
     nodos = list(nodos)
     respuestas = list(respuestas) if isinstance(respuestas, (list, tuple)) else []
     salida = []
-    faltantes = []
+    incompletos = []
     for i, nodo in enumerate(nodos):
         dato = deepcopy(respuestas[i]) if i < len(respuestas) and isinstance(respuestas[i], dict) else {"error": ERROR_PUBLICO}
         salida.append(dato)
-        if not _grilla_utilizable(nodo, dato, dato.get("_consulta_meteorologica"), ref):
-            faltantes.append((i, nodo))
+        if not _respuesta_completa(nodo, dato, dato.get("_consulta_meteorologica"), ref):
+            incompletos.append((i, nodo))
+    if not incompletos:
+        return salida
+    captura = _leer_captura_completa(nodos, ref, captura_completa)
+    if captura is not None:
+        original = captura["consultado"]
+        for i, nodo in incompletos:
+            dato = captura["datos"][i]
+            anterior = salida[i]
+            if not _grilla_utilizable(nodo, dato, original, ref, exigir_valor=True):
+                continue
+            if (_grilla_utilizable(nodo, anterior, anterior.get("_consulta_meteorologica"), ref)
+                    and not _respuesta_completa(nodo, dato, original, ref)):
+                continue
+            salida[i] = _respuesta_de_captura(dato, original, ref)
+    faltantes = [(i, nodo) for i, nodo in incompletos
+                 if not _grilla_utilizable(nodo, salida[i], salida[i].get("_consulta_meteorologica"), ref)]
     if not faltantes:
         return salida
     red = _leer_red(datos_red, ref)

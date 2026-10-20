@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.9.3"
+VERSION = "ZC 1.9.4"
 
 
 
@@ -828,6 +828,10 @@ def descripcion_wmo(codigo):
 
 @st.cache_data(ttl=900, show_spinner=False)
 def obtener_datos_ecmwf():
+    from recuperacion_meteo_zc import obtener_respuestas_completas_zc
+    compartidas = obtener_respuestas_completas_zc(NODOS, referencia=ahora())
+    if compartidas is not None:
+        return compartidas
     """Consulta los nodos configurados por lotes, preservando su orden."""
 
     latitudes = ",".join(
@@ -932,7 +936,7 @@ def obtener_datos_ecmwf():
     with ThreadPoolExecutor(max_workers=3) as pool:
         respuestas = [fila for lote in pool.map(consultar_lote,lotes) for fila in lote]
     from recuperacion_meteo_zc import recuperar_respuestas_zc
-    return recuperar_respuestas_zc(NODOS, respuestas, referencia=ahora())
+    return recuperar_respuestas_zc(NODOS, respuestas, referencia=ahora(), captura_completa=False)
 
 
 

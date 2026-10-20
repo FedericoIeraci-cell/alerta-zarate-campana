@@ -1,0 +1,398 @@
+"""Captura pública de las consultas ECMWF del monitor, sin credenciales.
+
+El monitor publica los valores originales, incluidos los ceros y los nulos.
+La captura evita repetir la misma consulta para cada visitante de Streamlit;
+su fecha de consulta nunca se sustituye por la fecha de lectura.
+"""
+from __future__ import annotations
+
+import base64
+import binascii
+from contextlib import suppress
+from datetime import datetime, timedelta, timezone
+import gzip
+import json
+import math
+import re
+import time
+import zlib
+
+SCHEMA_VERSION = 1
+FUENTE = "https://api.open-meteo.com/v1/ecmwf"
+SNAPSHOT_PATH = "meteorologia_ecmwf.json"
+SNAPSHOT_URL = (
+    "https://raw.githubusercontent.com/FedericoIeraci-cell/Alerta-Litoral/"
+    "ala-monitor-state/" + SNAPSHOT_PATH
+)
+SNAPSHOT_ZC_PATH = "meteorologia_zc_ecmwf.json"
+SNAPSHOT_ZC_URL = (
+    "https://raw.githubusercontent.com/FedericoIeraci-cell/Alerta-Litoral/"
+    "ala-monitor-state/" + SNAPSHOT_ZC_PATH
+)
+MAX_BYTES = 2_000_000
+MAX_UNCOMPRESSED_BYTES = 20_000_000
+MAX_AGE_HOURS = 3
+ERROR_PUBLICO = "La fuente meteorológica no devolvió datos utilizables para este nodo."
+
+VARIABLES_HORARIAS = frozenset({
+    "temperature_2m", "apparent_temperature", "dew_point_2m", "relative_humidity_2m",
+    "pressure_msl", "surface_pressure", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",
+    "cloud_cover_high", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
+    "shortwave_radiation", "cape", "vapour_pressure_deficit", "evapotranspiration",
+    "et0_fao_evapotranspiration", "precipitation", "rain", "showers",
+    "precipitation_probability", "runoff", "soil_temperature_0_to_7cm",
+    "soil_temperature_7_to_28cm", "soil_temperature_28_to_100cm", "soil_temperature_100_to_255cm",
+    "soil_moisture_0_to_7cm", "soil_moisture_7_to_28cm", "soil_moisture_28_to_100cm",
+    "soil_moisture_100_to_255cm", "weather_code",
+})
+VARIABLES_DIARIAS = frozenset({
+    "weather_code", "temperature_2m_min", "temperature_2m_max", "apparent_temperature_min",
+    "apparent_temperature_max", "precipitation_sum", "rain_sum", "showers_sum",
+    "precipitation_probability_max", "precipitation_hours", "wind_speed_10m_max",
+    "wind_gusts_10m_max", "wind_direction_10m_dominant", "cape_max",
+    "shortwave_radiation_sum", "sunshine_duration", "et0_fao_evapotranspiration",
+})
+_CAMPOS = frozenset({"hourly", "daily", "hourly_units", "daily_units", "latitude", "longitude",
+                     "elevation", "timezone", "timezone_abbreviation", "utc_offset_seconds",
+                     "generationtime_ms", "error"})
+_UNIDADES = frozenset({"iso8601", "°C", "%", "hPa", "km/h", "°", "W/m²", "J/kg", "kPa",
+                       "mm", "m³/m³", "m3/m3", "wmo code", "h", "MJ/m²", "s"})
+_ZONAS = frozenset({"America/Argentina/Buenos_Aires", "America/Buenos_Aires"})
+
+
+class CapturaMeteorologicaError(ValueError):
+    """Error público: nunca contiene cuerpos HTTP, URLs privadas ni excepciones."""
+
+
+def _error(mensaje="La captura meteorológica tiene un formato no válido."):
+    raise CapturaMeteorologicaError(mensaje)
+
+
+def _fecha(value):
+    if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}T.+", value):
+        try:
+            value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            _error("La captura requiere fecha, hora y zona horaria verificables.")
+    if not isinstance(value, datetime) or value.tzinfo is None or value.utcoffset() is None:
+        _error("La captura requiere fecha, hora y zona horaria verificables.")
+    return value.astimezone(timezone.utc)
+
+
+def _numero(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        _error()
+    if abs(value) > 1e12 or not math.isfinite(value):
+        _error()
+    return value
+
+
+def _catalogo(nodos):
+    if not isinstance(nodos, (list, tuple)) or not 0 < len(nodos) <= 256:
+        _error("El catálogo meteorológico no es válido.")
+    salida = []
+    for nodo in nodos:
+        if not isinstance(nodo, dict):
+            _error()
+        item = {}
+        for campo in ("localidad", "provincia"):
+            value = nodo.get(campo, "")
+            if (not isinstance(value, str) or len(value) > 150 or
+                    any(ord(c) < 32 for c in value) or "://" in value):
+                _error()
+            if campo == "localidad" and not value.strip():
+                _error()
+            item[campo] = value
+        item["lat"], item["lon"] = _numero(nodo.get("lat")), _numero(nodo.get("lon"))
+        if not -90 <= item["lat"] <= 90 or not -180 <= item["lon"] <= 180:
+            _error()
+        salida.append(item)
+    return salida
+
+
+def _tiempo_modelo(value, diario=False):
+    patron = r"\d{4}-\d{2}-\d{2}" if diario else r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?"
+    if not isinstance(value, str) or not re.fullmatch(patron, value):
+        _error()
+    try:
+        datetime.fromisoformat(value)
+    except ValueError:
+        _error()
+    return value
+
+
+def _dato(raw, estricto):
+    if not isinstance(raw, dict) or (estricto and set(raw) - _CAMPOS):
+        _error()
+    if raw.get("error"):
+        if estricto and (set(raw) != {"error"} or raw["error"] != ERROR_PUBLICO):
+            _error()
+        return {"error": ERROR_PUBLICO}
+    salida = {}
+    for campo in ("latitude", "longitude", "elevation", "utc_offset_seconds", "generationtime_ms"):
+        if campo in raw:
+            salida[campo] = _numero(raw[campo])
+    if "latitude" in salida and not -90 <= salida["latitude"] <= 90:
+        _error()
+    if "longitude" in salida and not -180 <= salida["longitude"] <= 180:
+        _error()
+    if "utc_offset_seconds" in salida and salida["utc_offset_seconds"] != -10800:
+        _error()
+    if "timezone" in raw:
+        if not isinstance(raw["timezone"], str) or raw["timezone"] not in _ZONAS:
+            _error()
+        salida["timezone"] = raw["timezone"]
+    if "timezone_abbreviation" in raw:
+        if (not isinstance(raw["timezone_abbreviation"], str) or
+                raw["timezone_abbreviation"] not in {"GMT-3", "GMT-03", "-03", "ART"}):
+            _error()
+        salida["timezone_abbreviation"] = raw["timezone_abbreviation"]
+    for campo, variables, limite in (("hourly", VARIABLES_HORARIAS, 2000),
+                                      ("daily", VARIABLES_DIARIAS, 100)):
+        permitidas = variables | {"time"}
+        if campo in raw:
+            bloque = raw[campo]
+            if not isinstance(bloque, dict) or (estricto and set(bloque) - permitidas):
+                _error()
+            tiempos = bloque.get("time", [])
+            if not isinstance(tiempos, list) or len(tiempos) > limite:
+                _error()
+            limpio = {"time": [_tiempo_modelo(t, campo == "daily") for t in tiempos]}
+            if limpio["time"] != sorted(set(limpio["time"])):
+                _error()
+            for clave in bloque.keys() & variables:
+                valores = bloque[clave]
+                if not isinstance(valores, list) or len(valores) != len(tiempos):
+                    _error()
+                limpio[clave] = [None if v is None else _numero(v) for v in valores]
+            salida[campo] = limpio
+        unidades = campo + "_units"
+        if unidades in raw:
+            bloque = raw[unidades]
+            if not isinstance(bloque, dict) or (estricto and set(bloque) - permitidas):
+                _error()
+            limpio = {}
+            for clave in bloque.keys() & permitidas:
+                unidad = bloque[clave]
+                if unidad == "undefined":
+                    # Open-Meteo publica esta unidad para variables no disponibles
+                    # en un modelo, acompañada por una serie completamente nula.
+                    # Conservarla evita perder el resto del pronóstico válido;
+                    # nunca se interpreta una magnitud numérica sin unidad.
+                    valores = salida.get(campo, {}).get(clave)
+                    if (clave == "time" or not isinstance(valores, list) or
+                            any(valor is not None for valor in valores)):
+                        _error(f"La unidad no disponible de {campo}.{clave} no corresponde a una serie nula.")
+                elif not isinstance(unidad, str) or unidad not in _UNIDADES:
+                    _error(f"La unidad de {campo}.{clave} no está admitida en la captura meteorológica.")
+                limpio[clave] = unidad
+            salida[unidades] = limpio
+    return salida
+
+
+def _con_datos(dato):
+    return not dato.get("error") and any(
+        any(value is not None for value in values)
+        for campo in ("hourly", "daily") for clave, values in dato.get(campo, {}).items()
+        if clave != "time"
+    )
+
+
+def crear_captura(nodos, datos, consultado):
+    """Proyecta sólo datos meteorológicos públicos; rechaza el fallo total."""
+    catalogo = _catalogo(nodos)
+    if not isinstance(datos, list) or len(datos) != len(catalogo):
+        _error("La cantidad de respuestas meteorológicas no coincide con los nodos.")
+    captura = {"schema_version": SCHEMA_VERSION, "fuente": FUENTE,
+               "consultado": _fecha(consultado).isoformat(), "nodos": catalogo,
+               "datos": [_dato(d, False) for d in datos]}
+    return validar_captura(captura, catalogo, referencia=consultado)
+
+
+def validar_captura(captura, nodos, referencia=None):
+    """Valida estructura, identidad/orden y vigencia; devuelve una copia pública."""
+    esperados = _catalogo(nodos)
+    if (not isinstance(captura, dict) or
+            set(captura) != {"schema_version", "fuente", "consultado", "nodos", "datos"} or
+            type(captura["schema_version"]) is not int or captura["schema_version"] != SCHEMA_VERSION or
+            captura["fuente"] != FUENTE):
+        _error()
+    recibidos = captura["nodos"]
+    if (not isinstance(recibidos, list) or len(recibidos) != len(esperados) or
+            any(not isinstance(n, dict) or set(n) != {"localidad", "provincia", "lat", "lon"}
+                for n in recibidos) or _catalogo(recibidos) != esperados):
+        _error("La captura corresponde a un catálogo u orden de nodos diferente.")
+    fecha = _fecha(captura["consultado"])
+    ahora = _fecha(referencia) if referencia is not None else datetime.now(timezone.utc)
+    if fecha > ahora + timedelta(minutes=5):
+        _error("La captura meteorológica tiene una fecha futura no verificable.")
+    if ahora - fecha > timedelta(hours=MAX_AGE_HOURS):
+        _error("La captura meteorológica está vencida: supera tres horas.")
+    datos = captura["datos"]
+    if not isinstance(datos, list) or len(datos) != len(esperados):
+        _error("La cantidad de respuestas meteorológicas no coincide con los nodos.")
+    limpios = [_dato(d, True) for d in datos]
+    if not any(_con_datos(d) for d in limpios):
+        _error("La captura no contiene ningún nodo con datos meteorológicos utilizables.")
+    return {"schema_version": SCHEMA_VERSION, "fuente": FUENTE,
+            "consultado": fecha.isoformat(), "nodos": esperados, "datos": limpios}
+
+
+def _json_bytes(value):
+    return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(",", ":")).encode("utf-8")
+
+
+def serializar_captura(captura):
+    """JSON gzip/base64 determinista; la vigencia se verifica al leer/publicar."""
+    if not isinstance(captura, dict):
+        _error()
+    limpia = validar_captura(captura, captura.get("nodos"), captura.get("consultado"))
+    contenido = _json_bytes(limpia)
+    if len(contenido) > MAX_UNCOMPRESSED_BYTES:
+        _error("La captura meteorológica supera el tamaño admitido.")
+    payload = base64.b64encode(gzip.compress(contenido, compresslevel=6, mtime=0)).decode("ascii")
+    resultado = _json_bytes({"schema_version": SCHEMA_VERSION, "encoding": "gzip+base64", "payload": payload})
+    if len(resultado) > MAX_BYTES:
+        _error("La captura meteorológica comprimida supera el tamaño admitido.")
+    return resultado
+
+
+def _leer_json(contenido):
+    def objeto(pares):
+        result = {}
+        for k, v in pares:
+            if k in result:
+                _error()
+            result[k] = v
+        return result
+    def no_finito(_):
+        _error()
+    try:
+        return json.loads(contenido, object_pairs_hook=objeto, parse_constant=no_finito)
+    except (ValueError, TypeError, UnicodeError, RecursionError):
+        _error("La captura meteorológica contiene JSON no válido.")
+
+
+def deserializar_captura(contenido, nodos, referencia=None):
+    """Descomprime con límites antes de validar; no confía en metadatos externos."""
+    if not isinstance(contenido, bytes) or not 0 < len(contenido) <= MAX_BYTES:
+        _error("La captura meteorológica supera el tamaño admitido o está vacía.")
+    sobre = _leer_json(contenido)
+    if (not isinstance(sobre, dict) or set(sobre) != {"schema_version", "encoding", "payload"} or
+            type(sobre["schema_version"]) is not int or sobre["schema_version"] != SCHEMA_VERSION or
+            sobre["encoding"] != "gzip+base64" or not isinstance(sobre["payload"], str)):
+        _error()
+    try:
+        comprimido = base64.b64decode(sobre["payload"], validate=True)
+        descompresor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+        raw = descompresor.decompress(comprimido, MAX_UNCOMPRESSED_BYTES + 1)
+        if (len(raw) > MAX_UNCOMPRESSED_BYTES or not descompresor.eof or
+                descompresor.unused_data or descompresor.unconsumed_tail):
+            _error("La captura meteorológica comprimida está dañada o supera el límite.")
+    except (ValueError, binascii.Error, zlib.error):
+        _error("La captura meteorológica comprimida está dañada o supera el límite.")
+    return validar_captura(_leer_json(raw), nodos, referencia)
+
+
+def consultar_captura(nodos, referencia=None, session=None):
+    return _consultar_captura_url(SNAPSHOT_URL, nodos, referencia, session)
+
+
+def consultar_captura_zc(nodos, referencia=None, session=None):
+    """La captura ZC completa tiene un archivo propio y el mismo contrato."""
+    return _consultar_captura_url(SNAPSHOT_ZC_URL, nodos, referencia, session)
+
+
+def _consultar_captura_url(url, nodos, referencia=None, session=None):
+    """Descarga pública acotada, sin redirecciones, credenciales ni reintentos."""
+    propia = session is None
+    if propia:
+        import requests
+        session = requests.Session()
+        session.trust_env = False
+    respuesta = None
+    try:
+        inicio = time.monotonic()
+        respuesta = session.get(url, timeout=(5, 15), stream=True, allow_redirects=False,
+                                headers={"Accept": "application/json", "Cache-Control": "no-cache",
+                                         "User-Agent": "ALA-MeteorologiaCompartida/1.0"})
+        if respuesta.status_code != 200 or getattr(respuesta, "url", url) != url:
+            _error("No se pudo consultar la captura meteorológica pública.")
+        largo = respuesta.headers.get("Content-Length")
+        if largo is not None and (not str(largo).isdigit() or int(largo) > MAX_BYTES):
+            _error("La captura meteorológica supera el tamaño admitido.")
+        partes, total = [], 0
+        for parte in respuesta.iter_content(chunk_size=65536):
+            total += len(parte)
+            if total > MAX_BYTES or time.monotonic() - inicio > 25:
+                _error("La captura meteorológica excedió el tamaño o tiempo admitido.")
+            partes.append(parte)
+        return deserializar_captura(b"".join(partes), nodos, referencia)
+    except CapturaMeteorologicaError:
+        raise
+    except Exception:
+        _error("No se pudo consultar la captura meteorológica pública.")
+    finally:
+        if respuesta is not None:
+            with suppress(Exception):
+                respuesta.close()
+        if propia:
+            with suppress(Exception):
+                session.close()
+
+
+def crear_captura_zc(referencia=None, session=None):
+    """Consulta las variables completas fuera de Streamlit, sin enviar avisos.
+
+    El reloj se fija antes de comenzar las dos descargas: publicar o leer el
+    archivo después no renueva la fecha de sus datos. Un fallo total no reemplaza
+    la captura anterior; las grillas reducidas del informe común son independientes.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    from red_integrada import NODOS_ZC
+    if session is None:
+        import requests
+        session = requests
+    consulta = _fecha(referencia) if referencia is not None else datetime.now(timezone.utc)
+    base = {"hourly": ",".join(sorted(VARIABLES_HORARIAS)),
+            "daily": ",".join(sorted(VARIABLES_DIARIAS)),
+            "past_days": 8, "forecast_days": 15,
+            "timezone": "America/Argentina/Buenos_Aires", "temperature_unit": "celsius",
+            "wind_speed_unit": "kmh", "precipitation_unit": "mm", "cell_selection": "land"}
+
+    def descargar(lote):
+        params = dict(base, latitude=",".join(f'{n["lat"]:.6f}' for n in lote),
+                      longitude=",".join(f'{n["lon"]:.6f}' for n in lote))
+        respuesta = None
+        try:
+            respuesta = session.get(FUENTE, params=params, timeout=(20, 45),
+                                    headers={"User-Agent": "ALA-ZC-CapturaCompleta/1.0"})
+            respuesta.raise_for_status()
+            datos = respuesta.json()
+            datos = datos if isinstance(datos, list) else [datos]
+            if len(datos) != len(lote):
+                raise ValueError("Cantidad de coordenadas incompatible")
+            salida = []
+            for nodo, dato in zip(lote, datos):
+                limpio = _dato(dato, False)
+                lat, lon = limpio.get("latitude"), limpio.get("longitude")
+                if lat is None or lon is None:
+                    raise ValueError("Celda sin coordenadas")
+                p1, p2 = math.radians(nodo["lat"]), math.radians(lat)
+                dp, dl = math.radians(lat - nodo["lat"]), math.radians(lon - nodo["lon"])
+                h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+                if 6371 * 2 * math.asin(math.sqrt(min(1, max(0, h)))) > 40:
+                    raise ValueError("Celda incompatible")
+                salida.append(limpio)
+            return salida
+        except Exception:
+            return [{"error": ERROR_PUBLICO} for _ in lote]
+        finally:
+            if respuesta is not None:
+                with suppress(Exception):
+                    respuesta.close()
+
+    lotes = [NODOS_ZC[:8], NODOS_ZC[8:]]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        datos = [dato for lote in pool.map(descargar, lotes) for dato in lote]
+    return crear_captura(NODOS_ZC, datos, consulta)

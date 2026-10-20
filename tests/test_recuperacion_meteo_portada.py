@@ -42,6 +42,9 @@ class SharedRecovery(unittest.TestCase):
     def setUp(self):
         self.nodos = deepcopy(red.NODOS_ZC)
         self.failure = [{"error": "ReadTimeout"} for _ in self.nodos]
+        captura = patch.object(recovery, "_leer_captura_completa", return_value=None)
+        captura.start()
+        self.addCleanup(captura.stop)
 
     def recover(self, datos=None, primary=None):
         return recovery.recuperar_respuestas_zc(self.nodos, self.failure if primary is None else primary,
