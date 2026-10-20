@@ -84,7 +84,8 @@ st.session_state['mapa_esperado']={r['localidad']:r['nivel'] for r in df_alerta.
         for punto in datos['puntos']:
             self.assertIn('Semáforo meteorológico: '+punto['nivel'],punto['popup'])
             self.assertIn('Cálculo: 17/10/2026 18:00',punto['popup'])
-            self.assertIn('Río y preparación regional: consultar la ficha superior.',punto['popup'])
+            self.assertIn('Río y preparación regional: consultar la ficha debajo del mapa.',punto['popup'])
+            self.assertIn('Consulta meteorológica: 17/10 17:50 ART', punto['popup'])
             if punto['nivel']=='SIN DATOS':
                 self.assertEqual(punto['color'],'#64748b')
                 self.assertIn('Sin dato',punto['popup'])
