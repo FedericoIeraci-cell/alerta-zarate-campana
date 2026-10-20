@@ -108,7 +108,7 @@ APP_NAME = "Alerta Zárate–Campana"
 
 
 
-VERSION = "ZC 1.9.4"
+VERSION = "ZC 1.9.5"
 
 
 
@@ -8126,8 +8126,9 @@ def mostrar_conexion_portada_zc():
 
 
 def render_app():
-    from mapa_inicio import mostrar_mapa_principal
+    from mapa_inicio import mostrar_mapa_principal, mostrar_logotipo_ala
     from portada_zc import hover_meteorologico_zc
+    mostrar_logotipo_ala(st, cargar_logo_ala())
     mapa_principal = st.empty()
     with mapa_principal.container():
         mostrar_mapa_principal(st, NODOS, componentes=components, geometrias={},
