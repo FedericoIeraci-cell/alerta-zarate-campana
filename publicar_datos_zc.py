@@ -16,6 +16,7 @@ import requests
 
 import meteorologia_compartida as met
 import red_integrada as red
+from recuperacion_meteo_zc import _respuesta_completa
 
 REPOSITORY = "FedericoIeraci-cell/alerta-zarate-campana"
 STATE_BRANCH = "zc-datos-state"
@@ -174,14 +175,26 @@ def ejecutar(*, dry_run=True, publicador=None):
         "hidrologia_observada": {"vigentes": sum(r.get("observacion_vigente") is True for r in rios), "aplicables": 3},
         "hidrologia_prevista": {"vigentes": sum(r.get("pronostico_vigente") is True for r in previstos), "aplicables": 2},
     }
-    parcial = any(c["vigentes"] < c["aplicables"] for c in cobertura.values())
+    # Una respuesta con todas sus claves puede contener series nulas. Descargar
+    # el archivo no acredita la cobertura necesaria para calcular el índice.
+    completos = (sum(_respuesta_completa(nodo, dato, captura["consultado"], ahora)
+                     for nodo, dato in zip(red.NODOS_ZC, captura["datos"]))
+                 if captura is not None else 0)
+    cobertura["meteorologia_completa"]["vigentes"] = completos
+    advertencias = [f"{nombre}: {item['vigentes']}/{item['aplicables']} referencias con datos vigentes."
+                   for nombre, item in cobertura.items() if item["vigentes"] < item["aplicables"]]
+    advertencias.extend(f"{fuente['organismo']}: {fuente['error']}"
+                        for fuente in documento["fuentes"] if fuente.get("error"))
+    parcial = bool(advertencias)
     estado = {"schema_version": 1, "checked_at": ahora.isoformat(), "frequency_minutes": 10,
-        "scope": red.ALCANCE_DATOS_ZC, "health": "error_meteorologia" if errores else "datos_parciales" if parcial else "ok",
+        "scope": red.ALCANCE_DATOS_ZC, "health": ("error_meteorologia" if captura is None else "error_hidrologia")
+            if errores else "datos_parciales" if parcial else "ok",
         "dry_run": dry_run, "publication_only": True, "red_integrada_publicada": not dry_run,
         "red_integrada_estado": "no_solicitada" if dry_run else "publicada",
         "nodes_total": len(red.NODOS_ZC), "nodes_valid": validos, "nodes_red": 0,
-        "coverage": cobertura, "errors": errores, "envia_telegram": False,
-        "meteorologia_completa_publicada": captura is not None and not dry_run}
+        "coverage": cobertura, "errors": errores, "warnings": advertencias, "envia_telegram": False,
+        "captura_descargada_publicada": captura is not None and not dry_run,
+        "meteorologia_completa_publicada": completos == len(red.NODOS_ZC) and not dry_run}
     documento["monitor"] = {k: estado[k] for k in ("checked_at", "health", "scope", "frequency_minutes", "dry_run", "nodes_total", "nodes_valid", "nodes_red")}
     archivos = {red.SNAPSHOT_PATH: _bytes(documento), STATUS_PATH: _bytes(estado)}
     if captura is not None:

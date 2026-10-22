@@ -5,6 +5,7 @@ on:
     paths:
       - '*.py'
       - 'requirements.txt'
+      - 'requirements_monitor.txt'
       - 'tests/**'
       - 'ubicacion_local_frontend/**'
       - 'assets/leaflet/**'
@@ -13,6 +14,7 @@ on:
     paths:
       - '*.py'
       - 'requirements.txt'
+      - 'requirements_monitor.txt'
       - 'tests/**'
       - 'ubicacion_local_frontend/**'
       - 'assets/leaflet/**'
@@ -41,5 +43,34 @@ jobs:
         run: node tests/test_ubicacion_js.cjs
       - name: Verificar datos, vigencias e interacciones sin red
         run: |
-          python -m py_compile app.py mapa_litoral.py hidrometria_local.py red_integrada.py portada_zc.py ubicacion_local.py
+          python -m py_compile app.py mapa_litoral.py hidrometria_local.py red_integrada.py portada_zc.py ubicacion_local.py publicar_datos_zc.py meteorologia_compartida.py
           python -m unittest discover -s tests -v
+
+  publicar-datos:
+    # Sólo después de las pruebas en main. No recibe secretos de Telegram.
+    if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    needs: verificar
+    permissions:
+      contents: write
+    concurrency:
+      group: zc-datos-${{ github.repository }}
+      cancel-in-progress: false
+      queue: max
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r requirements_monitor.txt
+      - name: Publicar datos locales sin avisos
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PYTHONUNBUFFERED: '1'
+          TZ: America/Argentina/Buenos_Aires
+        run: python publicar_datos_zc.py --publicar

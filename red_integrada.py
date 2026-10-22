@@ -906,7 +906,7 @@ _ALCANCE_MONITOR = "Meteorología + hidrología + represas"
 ALCANCE_DATOS_ZC = "Meteorología e hidrometría de Zárate–Campana"
 _SALUD_MONITOR = frozenset({"ok", "datos_parciales", "dry_run", "sin_datos", "error_registro",
                           "envio_sin_confirmacion", "envio_rechazado", "configuracion_invalida", "error_red_integrada",
-                          "error_meteorologia", "error_meteorologia_zc"})
+                          "error_meteorologia", "error_meteorologia_zc", "error_hidrologia"})
 _COBERTURAS_MONITOR = {
     "meteorologia": "Meteorología", "hidrologia_observada": "Observaciones de ríos",
     "meteorologia_completa": "Captura meteorológica completa",
@@ -1033,6 +1033,14 @@ def resumen_publico_monitor(estado_monitor, referencia=None):
         resumen.update(estado="vencido", etiqueta="Control anterior", motivo="El último registro tiene más de tres horas; falta confirmar un control reciente.")
         return resumen
     if registro["scope"] == ALCANCE_DATOS_ZC and registro["publication_only"] and not registro["dry_run"]:
+        if registro["red_integrada_estado"] == "error":
+            resumen.update(estado="con_error", etiqueta="Publicación local fallida",
+                           motivo="El actualizador no confirmó la publicación de los datos de Zárate–Campana.")
+            return resumen
+        if (not registro["red_integrada_publicada"] or
+                registro["red_integrada_estado"] not in {"publicada", "verificada"}):
+            resumen["motivo"] = "La publicación de los datos locales todavía no está confirmada."
+            return resumen
         error = registro["health"] not in {"ok", "datos_parciales"}
         resumen.update(estado="con_error" if error else "datos_parciales" if faltantes else "datos_recientes",
                        etiqueta="Actualización local incompleta" if error else "Datos locales actualizados",

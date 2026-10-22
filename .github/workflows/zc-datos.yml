@@ -4,13 +4,6 @@ on:
   schedule:
     - cron: '5,15,25,35,45,55 * * * *'
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - 'publicar_datos_zc.py'
-      - 'meteorologia_compartida.py'
-      - 'red_integrada.py'
-      - '.github/workflows/zc-datos.yml'
 
 permissions:
   contents: write

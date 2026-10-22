@@ -202,6 +202,20 @@ class EstadoOperativoTests(unittest.TestCase):
         self.assertFalse(red.resumen_publico_monitor(first, NOW)["control_reciente"])
         self.assertTrue(red.resumen_publico_monitor(second, NOW)["control_reciente"])
 
+    def test_actualizador_zc_no_confirma_publicacion_pendiente_o_fallida(self):
+        for publicado, estado, esperado in ((False, "pendiente", "sin_verificacion"),
+                                             (True, "pendiente", "sin_verificacion"),
+                                             (False, "error", "con_error"),
+                                             (True, "publicada", "datos_parciales")):
+            registro = status()
+            registro.update(scope=red.ALCANCE_DATOS_ZC, publication_only=True,
+                            red_integrada_publicada=publicado, red_integrada_estado=estado)
+            registro.pop("red_integrada_confirmacion")
+            with self.subTest(estado=estado, publicado=publicado):
+                out = red.resumen_publico_monitor(registro, NOW)
+                self.assertEqual(out["estado"], esperado)
+                self.assertEqual(out["publicacion_confirmada"], esperado == "datos_parciales")
+
     def test_error_http_y_tamano_rechazados_sin_exponer_cuerpo_ni_promover_datos(self):
         with patch("requests.get", side_effect=requests.HTTPError("secreto-artificial")):
             error = red.consultar_estado_monitor()

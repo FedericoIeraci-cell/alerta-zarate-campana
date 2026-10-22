@@ -42,6 +42,8 @@ La cadencia objetivo es de diez minutos. La captura se consulta por localidad, c
 
 Los archivos se publican juntos en un commit y se confirma su contenido y la rama vigente. Si falla la captura completa se mantiene el archivo anterior sin renovar su fecha; el informe puede publicar las variables disponibles y el fallo local. Una respuesta parcial no reemplaza una captura completa.
 
+El estado distingue **archivo descargado** de **cobertura meteorológica completa**: esta última exige lluvia previa de siete días, lluvia futura de 72 horas, escurrimiento previo de 72 horas y humedad reciente de al menos tres capas. Las variables nulas no cuentan como cobertura y los errores hidrométricos se informan por separado. La fecha de consulta nunca se presenta como emisión del modelo.
+
 ALA tiene su propio proceso, su cola y sus 48 puntos en `Alerta-Litoral/ala-monitor-state`. Una falla de cualquiera de las dos aplicaciones no bloquea el actualizador de la otra. Los enlaces entre páginas permiten navegar; no trasladan el estado ni acreditan cobertura en la otra región. Los informes históricos de 58 puntos siguen siendo legibles.
 
 Prueba de consulta sin escrituras ni avisos:
@@ -74,7 +76,7 @@ Los puntos son referencias para celdas del modelo, no estaciones instaladas ni p
 
 La aplicación publicada usa `app.py`, `red_integrada.py`, `hidrometria_local.py`, `portada_zc.py`, `ubicacion_local.py` y `requirements.txt` en la raíz. Al actualizarla, subí también la carpeta completa `ubicacion_local_frontend/`, incluidos su catálogo, HTML, JavaScript y CSS locales. Conservá los demás módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
 
-`.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio, con permisos de lectura. `.github/workflows/zc-datos.yml` actualiza únicamente datos locales, con permisos de escritura sobre este repositorio y sin credenciales de Telegram. El archivo `workflows/zc-monitor.yml` permanece fuera de `.github/workflows`; los envíos locales siguen desactivados.
+`.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio, con permisos de lectura. Después de superarlas en la rama principal, un trabajo separado publica los datos locales sin avisos. `.github/workflows/zc-datos.yml` mantiene la actualización programada, con permisos de escritura sobre este repositorio y sin credenciales de Telegram. Ambos escritores comparten una cola propia de ZC. El archivo `workflows/zc-monitor.yml` permanece fuera de `.github/workflows`; los envíos locales siguen desactivados.
 
 Para ejecutar las pruebas de vigencia, fuentes y selección de localidad, después de instalar las dependencias:
 

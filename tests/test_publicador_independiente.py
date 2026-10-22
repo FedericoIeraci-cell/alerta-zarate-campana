@@ -111,6 +111,41 @@ class PublicadorIndependienteTests(unittest.TestCase):
         self.assertTrue(estado["dry_run"])
         self.assertFalse(estado["red_integrada_publicada"])
 
+    def test_descarga_con_variables_nulas_no_acredita_cobertura_completa(self):
+        estado, _ = pub.ejecutar()
+        self.assertEqual(estado["coverage"]["meteorologia"]["vigentes"], 10)
+        self.assertEqual(estado["coverage"]["meteorologia_completa"]["vigentes"], 0)
+        self.assertEqual(estado["health"], "datos_parciales")
+        self.assertTrue(estado["warnings"])
+        self.assertFalse(estado["meteorologia_completa_publicada"])
+
+    def test_cobertura_del_indice_exige_lluvia_escurrimiento_y_tres_capas(self):
+        value = captura()
+        for dato in value["datos"]:
+            for campo in ("soil_moisture_0_to_7cm", "soil_moisture_7_to_28cm", "soil_moisture_28_to_100cm"):
+                dato["hourly"][campo] = [.25] * len(dato["hourly"]["time"])
+                dato["hourly_units"][campo] = "m³/m³"
+        value["datos"][0]["hourly"]["runoff"] = [None] * len(value["datos"][0]["hourly"]["time"])
+        self.meteo.return_value = value
+        store = Mock()
+        estado, _ = pub.ejecutar(dry_run=False, publicador=store)
+        self.assertEqual(estado["coverage"]["meteorologia_completa"]["vigentes"], 9)
+        self.assertTrue(estado["captura_descargada_publicada"])
+        self.assertFalse(estado["meteorologia_completa_publicada"])
+
+    def test_fallo_hidrologico_no_se_atribuye_a_la_meteorologia(self):
+        self.hidro.side_effect = RuntimeError("detalle privado")
+        estado, _ = pub.ejecutar()
+        self.assertEqual(estado["health"], "error_hidrologia")
+        self.assertNotIn("detalle privado", json.dumps(estado))
+
+    def test_errores_de_fuentes_se_conservan_en_las_advertencias(self):
+        self.hidro.return_value = {"nodos": [], "rios": [], "fuentes": [{
+            "red": "Zárate–Campana", "organismo": "INA · Zárate", "error": "Fuente no verificable"}]}
+        estado, doc = pub.ejecutar()
+        self.assertEqual(estado["health"], "datos_parciales")
+        self.assertTrue(any("Fuente no verificable" in item for item in estado["warnings"]))
+
     def test_solo_escribe_su_repo_su_rama_y_los_tres_archivos_juntos(self):
         api = FakeAPI()
         store = pub.GitHubPublicador("credencial_prueba", session=api)
@@ -140,6 +175,11 @@ class PublicadorIndependienteTests(unittest.TestCase):
         self.assertNotIn("secrets.", texto)
         self.assertNotIn("monitor.py", texto)
         self.assertIn("publicar_datos_zc.py --publicar", texto)
+        self.assertNotIn("\n  push:", texto)
+        validacion = (workflow.parent / "zc-validacion.yml").read_text()
+        self.assertIn("needs: verificar", validacion)
+        self.assertIn("publicar_datos_zc.py --publicar", validacion)
+        self.assertNotIn("TELEGRAM_BOT_TOKEN", validacion)
 
 
 if __name__ == "__main__":
