@@ -44,6 +44,8 @@ Los archivos se publican juntos en un commit y se confirma su contenido y la ram
 
 El estado distingue **archivo descargado** de **cobertura meteorológica completa**: esta última exige lluvia previa de siete días, lluvia futura de 72 horas, escurrimiento previo de 72 horas y humedad reciente de al menos tres capas. Las variables nulas no cuentan como cobertura y los errores hidrométricos se informan por separado. La fecha de consulta nunca se presenta como emisión del modelo.
 
+Los errores numéricos se aíslan por hora y por horizonte. Por ejemplo, una precipitación negativa del día 13 no elimina las primeras 72 horas válidas; queda sin interpretar en el período afectado. Si el valor inválido está dentro de una ventana necesaria para el índice, esa ventana y el índice quedan sin datos, no en cero.
+
 ALA tiene su propio proceso, su cola y sus 48 puntos en `Alerta-Litoral/ala-monitor-state`. Una falla de cualquiera de las dos aplicaciones no bloquea el actualizador de la otra. Los enlaces entre páginas permiten navegar; no trasladan el estado ni acreditan cobertura en la otra región. Los informes históricos de 58 puntos siguen siendo legibles.
 
 Prueba de consulta sin escrituras ni avisos:

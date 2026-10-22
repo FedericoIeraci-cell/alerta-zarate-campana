@@ -10638,16 +10638,13 @@ def _validar_respuesta_meteorologica(nodo, datos, referencia):
                     raise ValueError()
                 numero = float(valor)
             except (TypeError, ValueError, OverflowError):
-                if obligatoria:
-                    raise ValueError('La precipitación contiene un valor no numérico.') from None
                 normalizados.append(None)
                 problemas.append(campo + ': valor no numérico')
                 continue
             if np.isnan(numero):
                 normalizados.append(None)
-            elif not np.isfinite(numero) or numero < 0 or (campo in capas and numero > 1):
-                if obligatoria:
-                    raise ValueError('La precipitación contiene un valor fuera de sus límites físicos.')
+            elif (not np.isfinite(numero) or numero < 0 or (campo in capas and numero > 1)
+                  or (campo in ('precipitation', 'runoff') and numero > 1000)):
                 normalizados.append(None)
                 problemas.append(campo + ': valor fuera de límites físicos')
             else:
