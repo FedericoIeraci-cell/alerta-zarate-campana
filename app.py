@@ -1987,27 +1987,8 @@ def mensaje_prueba_telegram():
 @st.cache_data(ttl=60, show_spinner=False)
 def obtener_estado_monitor_publico():
     """Consulta solo el informe público; nunca modifica el registro de envíos."""
-    try:
-        repositorio = str(st.secrets.get('ALA_MONITOR_REPOSITORY', '')).strip()
-    except Exception:
-        repositorio = ''
-    if not repositorio:
-        return {'error': 'sin_repositorio'}
-    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repositorio):
-        return {'error': 'repositorio_invalido'}
-    url = f'https://raw.githubusercontent.com/{repositorio}/zc-monitor-state/monitor_status.json'
-    try:
-        respuesta = requests.get(url, timeout=(5, 10), headers={'User-Agent': 'Alerta-Zarate-Campana/monitor-panel'})
-        respuesta.raise_for_status()
-        if len(respuesta.content) > 2_000_000:
-            return {'error': 'informe_invalido'}
-        estado = respuesta.json()
-        if not isinstance(estado, dict) or not estado.get('checked_at'):
-            return {'error': 'informe_invalido'}
-        estado['actions_url'] = f'https://github.com/{repositorio}/actions'
-        return estado
-    except (requests.exceptions.RequestException, ValueError, TypeError):
-        return {'error': 'informe_no_disponible', 'actions_url': f'https://github.com/{repositorio}/actions'}
+    from red_integrada import consultar_estado_monitor
+    return consultar_estado_monitor()
 
 
 def estado_telegram_ui():
@@ -8115,7 +8096,7 @@ def mostrar_resumen_meteorologico_zc(df):
 
 def cargar_red_integrada_zc():
     import red_integrada as red
-    if getattr(red,'VERSION_RED',None) != '2026-10-20.1':
+    if getattr(red,'VERSION_RED',None) != '2026-10-22.regional':
         red=importlib.reload(red)
     return red
 
@@ -8148,7 +8129,7 @@ def render_app():
     # ============================================================
 
     tab_agro, tab_red, tab_modelo, tab_radar, tab_smn, tab_fuentes, tab_enos, tab_territorio, tab_historia, tab_cuenca = st.tabs([
-        "🌧️ Alerta local", "🌐 Red integrada", "🌊 Modelo de inundaciones", "📡 Radar regional", "🇦🇷 Datos oficiales SMN",
+        "🌧️ Alerta local", "🌐 Datos de Zárate–Campana", "🌊 Modelo de inundaciones", "📡 Radar regional", "🇦🇷 Datos oficiales SMN",
         "🌱 Suelo y ríos", "🌊 El Niño / La Niña", "🗺️ Territorio y accesos", "📘 Método y validación local", "🏞️ Cuenca del Paraná",
     ])
     # ============================================================
@@ -9599,7 +9580,7 @@ def render_app():
 
     with tab_red:
         try:
-            cargar_red_integrada_zc().mostrar_red_integrada(st, repository="FedericoIeraci-cell/Alerta-Litoral", app_actual="zc")
+            cargar_red_integrada_zc().mostrar_red_integrada(st, app_actual="zc")
         except Exception:
             st.warning("No se pudo cargar la información compartida en esta consulta. Los paneles regionales siguen disponibles; no se confirma el estado de la red.")
     with tab_radar:

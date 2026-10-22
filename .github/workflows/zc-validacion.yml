@@ -8,7 +8,7 @@ on:
       - 'tests/**'
       - 'ubicacion_local_frontend/**'
       - 'assets/leaflet/**'
-      - '.github/workflows/zc-validacion.yml'
+      - '.github/workflows/*.yml'
   pull_request:
     paths:
       - '*.py'
@@ -16,7 +16,7 @@ on:
       - 'tests/**'
       - 'ubicacion_local_frontend/**'
       - 'assets/leaflet/**'
-      - '.github/workflows/zc-validacion.yml'
+      - '.github/workflows/*.yml'
 
 permissions:
   contents: read

@@ -184,7 +184,7 @@ class EstadoOperativoTests(unittest.TestCase):
             third = red.consultar_estado_monitor(actualizar=True, referencia=NOW)
             self.assertEqual(get.call_count, 2)
             self.assertIn("revision", get.call_args.kwargs["params"])
-            self.assertTrue(all(call.args[0].endswith("/monitor_status.json") for call in get.call_args_list))
+        self.assertTrue(all(call.args[0].endswith("/zc-datos-state/datos_status.json") for call in get.call_args_list))
         self.assertEqual(first["checked_at"], third["checked_at"])
         self.assertEqual(first["red_integrada_confirmacion"], third["red_integrada_confirmacion"])
         serialized = json.dumps([first, second, third, red._CACHE_MONITOR], ensure_ascii=False)
