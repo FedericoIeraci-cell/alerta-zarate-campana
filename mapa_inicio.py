@@ -33,12 +33,17 @@ def mostrar_logotipo_ala(st, logotipo):
         'border:1px solid rgba(255,255,255,.75);border-radius:12px;background:rgba(255,255,255,.94);'
         'box-shadow:0 3px 18px rgba(0,0,0,.18)}'
         '.ala-marca-inicio-encuadre{position:relative;width:264px;max-width:100%;aspect-ratio:2.7;overflow:hidden}'
-        '.ala-marca-inicio-region{margin:4px 0 0;text-align:center;font:700 20px/1.25 system-ui,sans-serif;color:#17324d}'
+        '.ala-marca-inicio .ala-marca-inicio-region{display:flex;align-items:center;justify-content:center;'
+        'gap:7px;box-sizing:border-box;width:264px;max-width:100%;margin:7px 0 0;padding:7px 0 1px;'
+        'border-top:1px solid #c8dadb;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:800;'
+        'line-height:1.15;letter-spacing:.06em;text-transform:uppercase;color:#123b65;white-space:nowrap}'
+        '.ala-marca-inicio-region-separador{color:#329bd0}'
+        '.ala-marca-inicio-region-campana{color:#28682f}'
         '.ala-marca-inicio-encuadre img{position:absolute;left:0;top:50%;width:100%;max-width:none;'
         'height:auto;transform:translateY(-50%);display:block}'
         '@media(max-width:600px){.ala-marca-inicio{min-height:130px;padding:12px;margin-bottom:.45rem}'
         '.ala-marca-inicio-encuadre{width:232px}.ala-marca-inicio-placa{padding:8px 12px}'
-        '.ala-marca-inicio-region{font-size:18px}}'
+        '.ala-marca-inicio .ala-marca-inicio-region{width:232px;font-size:15px}}'
     )
     fondo_html = (' style="background-image:linear-gradient(rgba(9,28,43,.08),rgba(9,28,43,.08)),url('
                   + escape(fondo, quote=True) + ')"') if fondo else ''
@@ -48,7 +53,9 @@ def mostrar_logotipo_ala(st, logotipo):
                 '<div class="ala-marca-inicio-placa"><div class="ala-marca-inicio-encuadre"><img src="'
                 + escape(str(logotipo), quote=True)
                 + '" alt="A.L.A. · Alerta Litoral Agro"></div>'
-                '<p class="ala-marca-inicio-region">Zárate–Campana</p></div></header>')
+                '<div class="ala-marca-inicio-region" aria-label="Zárate–Campana">'
+                '<span>Zárate</span><span class="ala-marca-inicio-region-separador" aria-hidden="true">–</span>'
+                '<span class="ala-marca-inicio-region-campana">Campana</span></div></div></header>')
     st.markdown(cabecera, unsafe_allow_html=True)
 
 
