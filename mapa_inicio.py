@@ -23,29 +23,32 @@ def _fondo_cabecera_ala():
 
 
 def mostrar_logotipo_ala(st, logotipo):
-    """Presenta el logo original sobre un fondo decorativo de tormenta y crecida."""
+    """Presenta el logo original e identifica la región Zárate–Campana."""
     fondo = _fondo_cabecera_ala()
     estilo = (
         '.ala-marca-inicio{display:flex;align-items:center;justify-content:center;box-sizing:border-box;'
-        'width:100%;height:150px;padding:16px;margin:0 0 .65rem;border-radius:12px;overflow:hidden;'
+        'width:100%;min-height:150px;padding:16px;margin:0 0 .65rem;border-radius:12px;overflow:hidden;'
         'background-color:#18364a;background-size:cover;background-position:center 60%}'
         '.ala-marca-inicio-placa{box-sizing:border-box;max-width:100%;padding:9px 16px;'
         'border:1px solid rgba(255,255,255,.75);border-radius:12px;background:rgba(255,255,255,.94);'
         'box-shadow:0 3px 18px rgba(0,0,0,.18)}'
         '.ala-marca-inicio-encuadre{position:relative;width:264px;max-width:100%;aspect-ratio:2.7;overflow:hidden}'
+        '.ala-marca-inicio-region{margin:4px 0 0;text-align:center;font:700 20px/1.25 system-ui,sans-serif;color:#17324d}'
         '.ala-marca-inicio-encuadre img{position:absolute;left:0;top:50%;width:100%;max-width:none;'
         'height:auto;transform:translateY(-50%);display:block}'
-        '@media(max-width:600px){.ala-marca-inicio{height:130px;padding:12px;margin-bottom:.45rem}'
-        '.ala-marca-inicio-encuadre{width:232px}.ala-marca-inicio-placa{padding:8px 12px}}'
+        '@media(max-width:600px){.ala-marca-inicio{min-height:130px;padding:12px;margin-bottom:.45rem}'
+        '.ala-marca-inicio-encuadre{width:232px}.ala-marca-inicio-placa{padding:8px 12px}'
+        '.ala-marca-inicio-region{font-size:18px}}'
     )
     fondo_html = (' style="background-image:linear-gradient(rgba(9,28,43,.08),rgba(9,28,43,.08)),url('
                   + escape(fondo, quote=True) + ')"') if fondo else ''
     cabecera = ('<style>' + estilo + '</style>'
-                '<header class="ala-marca-inicio" aria-label="A.L.A. · Alerta Litoral Agro"'
+                '<header class="ala-marca-inicio" aria-label="A.L.A. · Zárate–Campana"'
                 + fondo_html + '>'
                 '<div class="ala-marca-inicio-placa"><div class="ala-marca-inicio-encuadre"><img src="'
                 + escape(str(logotipo), quote=True)
-                + '" alt="A.L.A. · Alerta Litoral Agro"></div></div></header>')
+                + '" alt="A.L.A. · Alerta Litoral Agro"></div>'
+                '<p class="ala-marca-inicio-region">Zárate–Campana</p></div></header>')
     st.markdown(cabecera, unsafe_allow_html=True)
 
 
@@ -196,3 +199,4 @@ def mostrar_mapa_principal(st, catalogo, frame=None, *, componentes=None,
                    + ' puntos. Tocá un nodo para ver sus valores y fechas. Un índice pendiente no elimina los datos de lluvia disponibles.')
         st.caption('Gris significa que falta información para completar la evaluación. El color es experimental; los avisos oficiales y las condiciones locales se revisan debajo.')
     return filas
+
