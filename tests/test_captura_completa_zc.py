@@ -2,6 +2,7 @@
 from copy import deepcopy
 from datetime import datetime, timedelta
 import importlib.util
+import math
 import os
 from pathlib import Path
 import unittest
@@ -89,6 +90,46 @@ class CapturaCompletaZCTests(unittest.TestCase):
             self.assertEqual(fila["temperatura"], 23.7)
             self.assertEqual(fila["capas_humedad_vigentes"], 4)
         self.http.assert_not_called()
+
+    def test_lluvia_invalida_en_dia_13_no_descarta_corto_plazo_ni_renueva_consulta(self):
+        raw = [completa(n) for n in self.nodos]
+        hora = (NOW + timedelta(days=12)).replace(tzinfo=None).isoformat()
+        for dato in raw:
+            i = dato["hourly"]["time"].index(hora)
+            dato["hourly"]["precipitation"][i] = -0.3
+        original = deepcopy(raw)
+        captura = meteo.deserializar_captura(documento(datos=raw), self.nodos, NOW)
+        with patch.object(meteo, "consultar_captura_zc", return_value=captura):
+            recuperadas = recovery.obtener_respuestas_completas_zc(self.nodos, NOW)
+        self.assertEqual(len(recuperadas), 10)
+        spec = importlib.util.spec_from_file_location("_zc_horizonte_invalido", ROOT / "app.py")
+        app = importlib.util.module_from_spec(spec)
+        with patch.dict(os.environ, {"ALA_MONITOR_HEADLESS": "1"}):
+            spec.loader.exec_module(app)
+        with patch.object(app, "ahora", return_value=NOW):
+            fila = app.procesar_nodo(app.NODOS[0], recuperadas[0], referencia_historica=NOW)
+        self.assertEqual(fila["estado_datos"], "OK")
+        self.assertEqual(fila["lluvia_futura_72"], 0.0)
+        self.assertTrue(any("precipitation" in p for p in fila["problemas_variables_meteorologicas"]))
+        self.assertEqual(raw, original)
+        self.assertEqual(recuperadas[0]["hourly"]["precipitation"], raw[0]["hourly"]["precipitation"])
+        self.http.assert_not_called()
+
+    def test_lluvia_invalida_en_72h_no_se_suma_como_cero_ni_acredita_indice(self):
+        dato = completa(self.nodos[0])
+        i = dato["hourly"]["time"].index((NOW + timedelta(hours=1)).replace(tzinfo=None).isoformat())
+        for invalido in (-0.3, 1001.0):
+            dato["hourly"]["precipitation"][i] = invalido
+            self.assertFalse(recovery._respuesta_completa(self.nodos[0], dato, NOW, NOW))
+            spec = importlib.util.spec_from_file_location("_zc_corto_invalido", ROOT / "app.py")
+            app = importlib.util.module_from_spec(spec)
+            with patch.dict(os.environ, {"ALA_MONITOR_HEADLESS": "1"}):
+                spec.loader.exec_module(app)
+            with patch.object(app, "ahora", return_value=NOW):
+                fila = app.procesar_nodo(app.NODOS[0], dato, referencia_historica=NOW)
+            self.assertEqual(fila["estado_datos"], "INCOMPLETO")
+            self.assertTrue(math.isnan(fila["indice"]))
+            self.assertTrue(math.isnan(fila["lluvia_futura_72"]))
 
     def test_mejora_respuesta_parcial_sin_reemplazar_una_directa_completa(self):
         primary = [dict(weather(n), _consulta_meteorologica=NOW.isoformat()) for n in self.nodos]

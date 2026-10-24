@@ -83,7 +83,13 @@ def _grilla_utilizable(nodo, payload, consulta, referencia, *, exigir_valor=Fals
     if any(b - a != timedelta(hours=1) for a, b in zip(parsed, parsed[1:])):
         return False
     values = [_numero(value) for value in rain]
-    if any(value is not None and not 0 <= value <= 1000 for value in values):
+    # Un valor inválido del horizonte extendido no invalida lluvia y suelo
+    # utilizables en las ventanas del índice. Cada horizonte vuelve a validar
+    # sus propios valores; el original se conserva y nunca se convierte en cero.
+    corte = referencia.astimezone(ART).replace(minute=0, second=0, microsecond=0)
+    if any(value is not None and not 0 <= value <= 1000
+           for hora, value in zip(parsed, values)
+           if corte - timedelta(hours=168) < hora <= corte + timedelta(hours=72)):
         return False
     if any(value is not None and (_numero(value) is None) for value in rain):
         return False
@@ -122,7 +128,7 @@ def _respuesta_completa(nodo, payload, consulta, referencia):
         for n in range(1, cantidad + 1):
             i = posiciones.get(inicio + timedelta(hours=n))
             value = _numero(values[i]) if i is not None else None
-            if value is None or value < 0:
+            if value is None or not 0 <= value <= 1000:
                 return False
         return True
 

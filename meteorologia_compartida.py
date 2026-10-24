@@ -21,20 +21,21 @@ SCHEMA_VERSION = 1
 FUENTE = "https://api.open-meteo.com/v1/ecmwf"
 SNAPSHOT_PATH = "meteorologia_ecmwf.json"
 SNAPSHOT_URL = (
-    "https://raw.githubusercontent.com/FedericoIeraci-cell/Alerta-Litoral/"
-    "ala-monitor-state/" + SNAPSHOT_PATH
+    "https://raw.githubusercontent.com/FedericoIeraci-cell/alerta-zarate-campana/"
+    "zc-datos-state/" + SNAPSHOT_PATH
 )
 SNAPSHOT_ZC_PATH = "meteorologia_zc_ecmwf.json"
 SNAPSHOT_ZC_URL = (
-    "https://raw.githubusercontent.com/FedericoIeraci-cell/Alerta-Litoral/"
-    "ala-monitor-state/" + SNAPSHOT_ZC_PATH
+    "https://raw.githubusercontent.com/FedericoIeraci-cell/alerta-zarate-campana/"
+    "zc-datos-state/" + SNAPSHOT_ZC_PATH
 )
 MAX_BYTES = 2_000_000
 MAX_UNCOMPRESSED_BYTES = 20_000_000
 MAX_AGE_HOURS = 3
+PRESUPUESTO_CAPTURA_ZC_SEGUNDOS = 180
 ERROR_PUBLICO = "La fuente meteorológica no devolvió datos utilizables para este nodo."
 
-VARIABLES_HORARIAS = frozenset({
+_ORDEN_HORARIAS = (
     "temperature_2m", "apparent_temperature", "dew_point_2m", "relative_humidity_2m",
     "pressure_msl", "surface_pressure", "cloud_cover", "cloud_cover_low", "cloud_cover_mid",
     "cloud_cover_high", "wind_speed_10m", "wind_gusts_10m", "wind_direction_10m",
@@ -44,14 +45,16 @@ VARIABLES_HORARIAS = frozenset({
     "soil_temperature_7_to_28cm", "soil_temperature_28_to_100cm", "soil_temperature_100_to_255cm",
     "soil_moisture_0_to_7cm", "soil_moisture_7_to_28cm", "soil_moisture_28_to_100cm",
     "soil_moisture_100_to_255cm", "weather_code",
-})
-VARIABLES_DIARIAS = frozenset({
+)
+VARIABLES_HORARIAS = frozenset(_ORDEN_HORARIAS)
+_ORDEN_DIARIAS = (
     "weather_code", "temperature_2m_min", "temperature_2m_max", "apparent_temperature_min",
     "apparent_temperature_max", "precipitation_sum", "rain_sum", "showers_sum",
     "precipitation_probability_max", "precipitation_hours", "wind_speed_10m_max",
     "wind_gusts_10m_max", "wind_direction_10m_dominant", "cape_max",
     "shortwave_radiation_sum", "sunshine_duration", "et0_fao_evapotranspiration",
-})
+)
+VARIABLES_DIARIAS = frozenset(_ORDEN_DIARIAS)
 _CAMPOS = frozenset({"hourly", "daily", "hourly_units", "daily_units", "latitude", "longitude",
                      "elevation", "timezone", "timezone_abbreviation", "utc_offset_seconds",
                      "generationtime_ms", "error"})
@@ -62,6 +65,10 @@ _ZONAS = frozenset({"America/Argentina/Buenos_Aires", "America/Buenos_Aires"})
 
 class CapturaMeteorologicaError(ValueError):
     """Error público: nunca contiene cuerpos HTTP, URLs privadas ni excepciones."""
+
+
+class _PresupuestoCapturaError(CapturaMeteorologicaError):
+    """Distingue el límite del colector de un error de formato de la fuente."""
 
 
 def _error(mensaje="La captura meteorológica tiene un formato no válido."):
@@ -344,29 +351,48 @@ def _consultar_captura_url(url, nodos, referencia=None, session=None):
 def crear_captura_zc(referencia=None, session=None):
     """Consulta las variables completas fuera de Streamlit, sin enviar avisos.
 
-    El reloj se fija antes de comenzar las dos descargas: publicar o leer el
-    archivo después no renueva la fecha de sus datos. Un fallo total no reemplaza
-    la captura anterior; las grillas reducidas del informe común son independientes.
+    El reloj se fija antes de comenzar las descargas: publicar o leer el
+    archivo después no renueva la fecha de sus datos. Una consulta incompleta no
+    reemplaza la captura anterior; las grillas reducidas son independientes.
     """
     from concurrent.futures import ThreadPoolExecutor
+    from threading import local
+    import time
     from red_integrada import NODOS_ZC
-    if session is None:
-        import requests
-        session = requests
+    import requests
     consulta = _fecha(referencia) if referencia is not None else datetime.now(timezone.utc)
-    base = {"hourly": ",".join(sorted(VARIABLES_HORARIAS)),
-            "daily": ",".join(sorted(VARIABLES_DIARIAS)),
+    limite = time.monotonic() + PRESUPUESTO_CAPTURA_ZC_SEGUNDOS
+    # Una sesión por trabajador conserva las conexiones sin compartir entre
+    # hilos cookies, sockets o estado de requests.Session.
+    transporte_local, sesiones = local(), []
+
+    def transporte():
+        if session is not None:
+            return session
+        if not hasattr(transporte_local, 'session'):
+            transporte_local.session = requests.Session()
+            sesiones.append(transporte_local.session)
+        return transporte_local.session
+
+    def restante():
+        segundos = limite - time.monotonic()
+        if segundos <= 0:
+            raise _PresupuestoCapturaError('La captura completa de Zárate–Campana agotó su presupuesto de consulta; se conserva el respaldo con su fecha original.')
+        return segundos
+    # Misma petición del getter ALA: orden de claves, variables y User-Agent.
+    base = {"hourly": ",".join(_ORDEN_HORARIAS),
+            "daily": ",".join(_ORDEN_DIARIAS),
             "past_days": 8, "forecast_days": 15,
             "timezone": "America/Argentina/Buenos_Aires", "temperature_unit": "celsius",
             "wind_speed_unit": "kmh", "precipitation_unit": "mm", "cell_selection": "land"}
 
-    def descargar(lote):
-        params = dict(base, latitude=",".join(f'{n["lat"]:.6f}' for n in lote),
-                      longitude=",".join(f'{n["lon"]:.6f}' for n in lote))
+    def consultar(lote, params):
         respuesta = None
         try:
-            respuesta = session.get(FUENTE, params=params, timeout=(20, 45),
-                                    headers={"User-Agent": "ALA-ZC-CapturaCompleta/1.0"})
+            segundos = restante()
+            respuesta = transporte().get(FUENTE, params=params,
+                                    timeout=(min(5, segundos), min(30, segundos)),
+                                    headers={"User-Agent": "Alerta-Litoral-Agro/3.10.2"})
             respuesta.raise_for_status()
             datos = respuesta.json()
             datos = datos if isinstance(datos, list) else [datos]
@@ -383,16 +409,107 @@ def crear_captura_zc(referencia=None, session=None):
                 h = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
                 if 6371 * 2 * math.asin(math.sqrt(min(1, max(0, h)))) > 40:
                     raise ValueError("Celda incompatible")
+                for campo in ("hourly", "daily"):
+                    bloque = limpio.get(campo, {})
+                    unidades = limpio.get(campo + "_units", {})
+                    solicitadas = set(params[campo].split(","))
+                    if (not bloque.get("time") or not solicitadas <= bloque.keys()
+                            or not solicitadas <= unidades.keys()):
+                        raise ValueError("Respuesta sin todas las variables solicitadas")
                 salida.append(limpio)
             return salida
-        except Exception:
-            return [{"error": ERROR_PUBLICO} for _ in lote]
         finally:
             if respuesta is not None:
                 with suppress(Exception):
                     respuesta.close()
 
-    lotes = [NODOS_ZC[:8], NODOS_ZC[8:]]
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        datos = [dato for lote in pool.map(descargar, lotes) for dato in lote]
+    def consultar_por_partes(lote, params, profundidad=0):
+        # Tras dos fallos transitorios: reduce el trabajo por petición, no
+        # el conjunto de variables ni el horizonte. No reintenta HTTP 403/429.
+        horarias, diarias = params['hourly'].split(','), params['daily'].split(',')
+        grupos = [dict(params, hourly=",".join(horarias[i::2]),
+                       daily=",".join(diarias[i::2])) for i in range(2)]
+        partes = []
+        for grupo in grupos:
+            try:
+                parte = consultar(lote, grupo)
+            except requests.exceptions.ReadTimeout:
+                # Sólo la mitad que falló se subdivide una vez más. No se
+                # repiten las partes obtenidas ni se cambia el horizonte.
+                if profundidad >= 1:
+                    raise
+                parte = consultar_por_partes(lote, grupo, profundidad + 1)
+            partes.append(parte)
+        primera, segunda = partes
+        for destino, parte in zip(primera, segunda):
+            for campo in ("latitude", "longitude", "timezone", "utc_offset_seconds"):
+                if campo not in destino or destino[campo] != parte.get(campo):
+                    raise ValueError("Partes de celdas o zonas horarias diferentes")
+            for campo in ("hourly", "daily"):
+                if destino[campo]["time"] != parte[campo]["time"]:
+                    raise ValueError("Partes con ejes temporales diferentes")
+                destino[campo].update(parte[campo])
+                destino[campo + "_units"].update(parte[campo + "_units"])
+        return primera
+
+    def descargar(lote):
+        params = dict(latitude=",".join(f'{n["lat"]:.6f}' for n in lote),
+                      longitude=",".join(f'{n["lon"]:.6f}' for n in lote), **base)
+        contexto = f"Consulta meteorológica ZC: {lote[0]['localidad']}"
+        try:
+            for intento in range(2):
+                try:
+                    return consultar(lote, params)
+                except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+                    if intento:
+                        if isinstance(exc, requests.exceptions.ReadTimeout):
+                            return consultar_por_partes(lote, params)
+                        raise
+                except requests.exceptions.HTTPError as exc:
+                    respuesta = exc.response
+                    if getattr(respuesta, "status_code", None) not in {502, 503, 504}:
+                        raise
+                    # Una espera explícita del proveedor no se ignora: si
+                    # supera el presupuesto, este control conserva el respaldo.
+                    espera = getattr(respuesta, "headers", {}).get("Retry-After")
+                    if espera is not None and (not str(espera).isdigit() or int(espera) > 30):
+                        raise
+                    pausa = max(1, int(espera or 1))
+                    if restante() < pausa:
+                        raise _PresupuestoCapturaError('La espera solicitada por la fuente supera el presupuesto de consulta ZC; se conserva el respaldo con su fecha original.')
+                    time.sleep(pausa)
+                    if intento:
+                        return consultar_por_partes(lote, params)
+        except _PresupuestoCapturaError:
+            raise
+        except requests.exceptions.Timeout as exc:
+            clase = ("timeout_conexion" if isinstance(exc, requests.exceptions.ConnectTimeout) else
+                     "timeout_lectura" if isinstance(exc, requests.exceptions.ReadTimeout) else "timeout")
+            _error(f"{contexto}, {clase}.")
+        except requests.exceptions.ConnectionError:
+            _error(f"{contexto}, conexion.")
+        except requests.exceptions.HTTPError as exc:
+            estado = getattr(getattr(exc, "response", None), "status_code", None)
+            codigo = f"http_{estado}" if isinstance(estado, int) and 100 <= estado <= 599 else "http"
+            _error(f"{contexto}, {codigo}.")
+        except (ValueError, TypeError):
+            _error(f"{contexto}, respuesta_invalida.")
+        except Exception:
+            _error(f"{contexto}, error_interno.")
+
+    # La respuesta completa por coordenada es grande: agrupar localidades
+    # multiplica el trabajo del proveedor antes de devolver el primer byte.
+    # Aislarlas también limita cada reintento a la localidad que falló.
+    lotes = [[nodo] for nodo in NODOS_ZC]
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            datos = [dato for lote in pool.map(descargar, lotes) for dato in lote]
+    finally:
+        # El pool ya esperó la finalización de los trabajadores, incluso si una
+        # referencia falló. Ninguna sesión queda abierta entre controles.
+        for conexion in sesiones:
+            with suppress(Exception):
+                conexion.close()
+    if any(not _con_datos(dato) for dato in datos):
+        _error("La captura meteorológica completa de Zárate–Campana no cubre todos los nodos.")
     return crear_captura(NODOS_ZC, datos, consulta)
