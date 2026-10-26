@@ -14,7 +14,7 @@ El estado local y las cifras de lluvia y río aparecen antes de los detalles de 
 
 Para Zárate se incorpora la medición de la estación automática **Paraná Las Palmas - Zárate**, serie INA **29437**, cuando el informe compartido y la observación están vigentes. Se mantiene separada de la escala del puerto (serie 40). Campana conserva su propia lectura (41); no se le asigna el dato de Zárate. Esta incorporación no rebaja el estado de preparación ni traslada referencias de alerta entre estaciones. Ver [evidencia hidrométrica](docs/HIDROMETRIA_ZARATE_20261018.md).
 
-El lector común distingue informe actualizado, control normal, control con datos parciales, comprobación, control antiguo y verificación fallida. Ambos sitios usan el mismo registro público del control de ALA.
+El lector distingue informe actualizado, datos parciales, comprobación, control antiguo y verificación fallida. Cada sitio usa su propio registro público; ZC no presenta un control ALA como prueba de actividad local.
 
 ## Qué muestra primero la versión 1.9.0
 
@@ -30,25 +30,31 @@ Las consultas incompletas de SMN no confirman ausencia de avisos. La perspectiva
 
 Ver [auditoría conjunta del 17/10/2026](docs/AUDITORIA_SAT_20261017.md).
 
-## Red integrada Litoral–Zárate–Campana
+## Actualización independiente de Zárate–Campana
 
-Las dos aplicaciones tienen una solapa **Red integrada** que consulta el mismo informe público: `red_integrada.json` en la rama `ala-monitor-state` del repositorio Alerta-Litoral.
+La página consulta sus diez referencias y sus fuentes INA directamente, con un respaldo público propio. El proceso `.github/workflows/zc-datos.yml` publica en `zc-datos-state` de este repositorio:
 
-El informe reúne los **48 puntos del Litoral y 10 referencias meteorológicas de Zárate–Campana**, estaciones y pronósticos fluviales oficiales disponibles y reportes de represas. Conserva fechas, cobertura y fuentes. Los puntos cercanos pueden representar la misma celda meteorológica.
+- `red_integrada.json`: diez referencias ZC, observaciones y pronósticos locales con sus fechas.
+- `meteorologia_zc_ecmwf.json`: captura completa del modelo para la página.
+- `datos_status.json`: estado del actualizador de datos ZC, separado del monitor y de los avisos ALA.
 
-El monitor existente de ALA prepara el informe común después de guardar su evaluación regional. La consulta adicional de Zárate–Campana no incorpora nuevos candidatos ni destinatarios a Telegram. Cada aplicación conserva sus criterios y registros regionales; el informe común no activa una orden de evacuación.
+La cadencia objetivo es de diez minutos. La captura se consulta por localidad, con presupuesto de tiempo y recuperación por subpartes ante tiempos de espera. Cada descarga completa conserva variables, unidades, coordenadas y hora original. La hidrometría se consulta de forma independiente y se reutiliza la captura para producir las cifras de lluvia, evitando otra descarga igual.
 
-Un informe con más de 3 horas se señala como vencido. Las alturas y corridas locales de Zárate–Campana también se revisan con un máximo de 6 horas; la fecha de generación del informe no renueva una lectura antigua. No se suman caudales de estaciones sucesivas ni se calcula una hora de llegada desde las compuertas.
+Los archivos se publican juntos en un commit y se confirma su contenido y la rama vigente. Si falla la captura completa se mantiene el archivo anterior sin renovar su fecha; el informe puede publicar las variables disponibles y el fallo local. Una respuesta parcial no reemplaza una captura completa.
 
-Para actualizar, incluí el mismo `red_integrada.py` en la raíz de ambos repositorios. ALA también requiere su `monitor.py` actualizado. Esta prueba se ejecuta **en el repositorio Alerta-Litoral**, que produce el informe común:
+El estado distingue **archivo descargado** de **cobertura meteorológica completa**: esta última exige lluvia previa de siete días, lluvia futura de 72 horas, escurrimiento previo de 72 horas y humedad reciente de al menos tres capas. Las variables nulas no cuentan como cobertura y los errores hidrométricos se informan por separado. La fecha de consulta nunca se presenta como emisión del modelo.
+
+Los errores numéricos se aíslan por hora y por horizonte. Por ejemplo, una precipitación negativa del día 13 no elimina las primeras 72 horas válidas; queda sin interpretar en el período afectado. Si el valor inválido está dentro de una ventana necesaria para el índice, esa ventana y el índice quedan sin datos, no en cero.
+
+ALA tiene su propio proceso, su cola y sus 48 puntos en `Alerta-Litoral/ala-monitor-state`. Una falla de cualquiera de las dos aplicaciones no bloquea el actualizador de la otra. Los enlaces entre páginas permiten navegar; no trasladan el estado ni acreditan cobertura en la otra región. Los informes históricos de 58 puntos siguen siendo legibles.
+
+Prueba de consulta sin escrituras ni avisos:
 
 ```bash
-python monitor.py --dry-run --export-red red_integrada_revision.json
+python publicar_datos_zc.py --dry-run --export-red red_zc_revision.json
 ```
 
-[Abrir Alerta Litoral Agro](https://alerta-litoral-agro.streamlit.app/) · [Abrir Alerta Zárate–Campana](https://alerta-zarate-campana.streamlit.app/)
-
-## Modelo local y datos disponibles
+El actualizador no carga `app.py`, no usa el SQLite de avisos ni lee credenciales de Telegram. Su estado describe la disponibilidad de datos, no una evaluación de envíos. Los datos fluviales antiguos y las horas sin confirmar siguen señalados; la publicación no los convierte en telemetría en vivo.
 
 La solapa **Modelo de inundaciones** muestra variables atmosféricas por horizonte, previsiones fluviales, fechas, horas disponibles y limitaciones. Una fuente fallida no elimina variables válidas de otras fuentes. Un valor ausente se conserva como desconocido y no se convierte en cero.
 
@@ -66,13 +72,13 @@ Los puntos son referencias para celdas del modelo, no estaciones instaladas ni p
 
 ## Telegram
 
-La conexión común comparte información con ALA. **Telegram de Zárate–Campana permanece pendiente**, según la decisión del proyecto. Esta actualización no crea un bot, no agrega destinatarios y no activa avisos automáticos locales. No se debe copiar el SQLite del canal ALA a este repositorio.
+**Telegram de Zárate–Campana permanece pendiente**, según la decisión del proyecto. El actualizador de datos independiente no crea un bot, no agrega destinatarios y no activa avisos automáticos locales. No se debe copiar el SQLite del canal ALA a este repositorio.
 
 ## Archivos y ejecución
 
 La aplicación publicada usa `app.py`, `red_integrada.py`, `hidrometria_local.py`, `portada_zc.py`, `ubicacion_local.py` y `requirements.txt` en la raíz. Al actualizarla, subí también la carpeta completa `ubicacion_local_frontend/`, incluidos su catálogo, HTML, JavaScript y CSS locales. Conservá los demás módulos y archivos de soporte existentes. No publiques credenciales en código o documentos.
 
-`.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio. Tiene permisos de lectura y no recibe credenciales de Telegram. El archivo `workflows/zc-monitor.yml` conserva su ubicación previa fuera de `.github/workflows`; esta versión no activa un monitor local ni envíos.
+`.github/workflows/zc-validacion.yml` ejecuta las pruebas de datos y presentación en cada cambio, con permisos de lectura. Después de superarlas en la rama principal, un trabajo separado publica los datos locales sin avisos. `.github/workflows/zc-datos.yml` mantiene la actualización programada, con permisos de escritura sobre este repositorio y sin credenciales de Telegram. Ambos escritores comparten una cola propia de ZC. El archivo `workflows/zc-monitor.yml` permanece fuera de `.github/workflows`; los envíos locales siguen desactivados.
 
 Para ejecutar las pruebas de vigencia, fuentes y selección de localidad, después de instalar las dependencias:
 
